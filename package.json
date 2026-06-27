@@ -50,7 +50,8 @@
       {
         "provider": "github",
         "owner": "Everlasting-dev",
-        "repo": "octane"
+        "repo": "octane",
+        "releaseType": "release"
       }
     ]
   },

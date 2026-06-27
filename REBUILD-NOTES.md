@@ -228,6 +228,20 @@ left in place for now (not deleted) but should be considered retired.
   areas can be filled from a saved **template**. Compare state lives in
   `dashboard.tsx` (`compareAreas`, `fileOffsets`, `activeCompareFile`).
 
+## Phase 20 — Octane rebrand + go-live polish
+
+- **Rebrand → Octane**: new flame+turbine logo (`scripts/gen-icons.mjs` → `components/runscope/logo.tsx`, `public/icon.svg`, `build/octane.svg`, PNGs incl. dark-tile `build/icon.png`). Renamed everywhere: package (`octane-signal-matrix`, productName **Octane**, appId `dev.everlasting.octane`, publish `Everlasting-dev/octane`, version 1.0.0), window title, layout metadata, brand text (rail/landing/login), env (`OCTANE_*`), window hooks (`__octaneOpenLog`/`__octaneOpenAbout`), localStorage keys (`octane:*`), and a consolidated `window.octane` preload bridge (templates/auth/app/updates). `lib/auth.ts` + `lib/templates.ts` read `window.octane.*`.
+- **Settings → Key bindings sub-page** (`settings-modal.tsx` `page` state).
+- **Analysis-plot + compare grid**: dotted H+V lines, distinct subtle colour, gated by the grid toggle.
+- **Annotate**: auto-exits after a mark; clicking an annotation in the float list pans the window to it (width unchanged) via `jumpToTime`.
+- **Template edit-lock**: lock button by Save hides Update/Rename/Delete (default locked); Save/Import/Export always available.
+- **Per-view window memory**: `viewWindowsRef` remembers each view's window across Matrix/Plot/Compare; cleared on file load/select.
+- **Help = Check for Updates + About**: native menu + in-app `about-modal.tsx` (version via `octane.app.getVersion`, signed-in email, GitHub link, update check). `lib/app-info.ts`.
+- **Compare lock indicator**: `Lock` icon next to each facet's channel when alignment is locked.
+- **No DevTools / simple menu**: `webPreferences.devTools:false`; menu trimmed to File/View(zoom+fullscreen)/Help.
+- **Repo**: pushed to `Everlasting-dev/octane` (private). `scripts/install-octane.bat` uninstalls old Runscope/Octane then installs the latest release.
+- ⚠ For the `.bat`/auto-updater to reach end users, the release assets must be **public** — either `gh repo edit Everlasting-dev/octane --visibility public` or publish releases to a separate public repo.
+
 ## Phase 19 — Grid/lock/dim toggles, matrix scrub, template scroll, unpacked build
 
 - **Grid toggle shortcut** (`G`, remappable) — applies to all views incl. Analysis Plot.
