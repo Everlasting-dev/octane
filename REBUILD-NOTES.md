@@ -228,6 +228,21 @@ left in place for now (not deleted) but should be considered retired.
   areas can be filled from a saved **template**. Compare state lives in
   `dashboard.tsx` (`compareAreas`, `fileOffsets`, `activeCompareFile`).
 
+## Phase 21 — Analysis Plot: split panes, real-units Y axis, multi-select scaling
+
+- **Split toggle** (`combined-chart.tsx`): the Analysis Plot can render **two
+  stacked panes**; each channel is assigned to plot 1 or 2 via a `1|2` control in
+  the dock. Both panes share the X window + cursor. Refactored chart body into an
+  `AnalysisPane` subcomponent.
+- **Real-units Y axis**: the left axis now labels in the **focused line's real
+  values** (inverse of the per-line gain/offset transform), tinted in that line's
+  colour, with the channel+unit shown top-left — so the axis stays meaningful
+  despite normalization/scaling. Per pane it follows the focused line (else the
+  pane's first line).
+- **Multi-select scaling**: dock rows have a checkbox; Shift+scroll / Shift+drag
+  now scale/move **all selected lines together** (falls back to the focused line
+  when nothing is selected). Peak highlight keyed by label.
+
 ## Phase 20 — Octane rebrand + go-live polish
 
 - **Rebrand → Octane**: new flame+turbine logo (`scripts/gen-icons.mjs` → `components/runscope/logo.tsx`, `public/icon.svg`, `build/octane.svg`, PNGs incl. dark-tile `build/icon.png`). Renamed everywhere: package (`octane-signal-matrix`, productName **Octane**, appId `dev.everlasting.octane`, publish `Everlasting-dev/octane`, version 1.0.0), window title, layout metadata, brand text (rail/landing/login), env (`OCTANE_*`), window hooks (`__octaneOpenLog`/`__octaneOpenAbout`), localStorage keys (`octane:*`), and a consolidated `window.octane` preload bridge (templates/auth/app/updates). `lib/auth.ts` + `lib/templates.ts` read `window.octane.*`.

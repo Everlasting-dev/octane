@@ -1,7 +1,7 @@
 "use client"
 
 import { memo, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react"
-import { ChevronLeft, ChevronRight, Maximize2, Minimize2, RotateCcw, TrendingUp } from "lucide-react"
+import { ChevronLeft, ChevronRight, Columns2, Maximize2, Minimize2, RotateCcw, Rows2, TrendingUp } from "lucide-react"
 import { Area, AreaChart, CartesianGrid, ReferenceDot, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from "recharts"
 import { lttb } from "@/lib/downsample"
 import { cn } from "@/lib/utils"
@@ -13,8 +13,8 @@ import type { DisplaySettings } from "./display-panel"
 
 const RENDER_POINTS = 700
 const PLOT_TOP = 10
-const AXIS_H = 28 // approx x-axis band height
-const LEFT = 40
+const AXIS_H = 28
+const LEFT = 56
 const RIGHT = 16
 const GAIN_MIN = 0.2
 const GAIN_MAX = 20
@@ -33,7 +33,6 @@ interface CombinedChartProps {
   timeUnit: string
   annotations: Annotation[]
   annotateMode: boolean
-  // Persisted across view switches (owned by the dashboard).
   transforms: Record<string, Transform>
   setTransforms: Dispatch<SetStateAction<Record<string, Transform>>>
   focusKey: string | null
@@ -62,6 +61,20 @@ function nearest(data: ChartSeries["signal"]["data"], t: number) {
   }
   return best
 }
+function applyTf(v: number | null, t: Transform): number | null {
+  if (v == null) return null
+  return (v - 0.5) * t.gain + 0.5 + t.offset
+}
+
+interface Peak {
+  label: string
+  t: number
+  value: number
+  norm: number
+  unit: string
+  decimals: number
+  color: string
+}
 
 function CombinedChartImpl({
   series,
@@ -81,49 +94,73 @@ function CombinedChartImpl({
   onCursorChange,
   onAddAnnotation,
 }: CombinedChartProps) {
-  const [highlightI, setHighlightI] = useState<number | null>(null)
+  const [highlightKey, setHighlightKey] = useState<string | null>(null)
   const [dockOpen, setDockOpen] = useState(true)
   const [fullscreen, setFullscreen] = useState(false)
+  const [split, setSplit] = useState(false)
+  const [plotAssign, setPlotAssign] = useState<Record<string, 0 | 1>>({})
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const bindings = useBindings()
 
-  const wrapRef = useRef<HTMLDivElement>(null)
-  const dragRef = useRef<{ moved: boolean } | null>(null)
-  const clickRef = useRef<{ x: number; y: number; moved: boolean } | null>(null)
-  const offsetDragRef = useRef<{ startY: number; startOffset: number } | null>(null)
-
   const labels = series.map((s) => s.signal.label)
-
-  function tf(label: string): Transform {
-    return transforms[label] ?? { gain: 1, offset: 0 }
-  }
-  function applyTf(v: number | null, label: string): number | null {
-    if (v == null) return null
-    const t = tf(label)
-    return (v - 0.5) * t.gain + 0.5 + t.offset
-  }
-
-  // Normalise each channel to 0..1 (base), merged by timestamp.
-  const { rows, keys } = useMemo(() => {
-    const map = new Map<number, Record<string, number | null>>()
-    series.forEach((s, si) => {
-      const key = `k${si}`
-      const range = s.signal.max - s.signal.min || 1
-      for (const d of lttb(s.signal.data, RENDER_POINTS)) {
-        let row = map.get(d.t)
-        if (!row) {
-          row = { t: d.t }
-          map.set(d.t, row)
-        }
-        row[key] = d.value == null ? null : (d.value - s.signal.min) / range
-      }
-    })
-    return { rows: [...map.values()].sort((a, b) => (a.t as number) - (b.t as number)), keys: series.map((_, i) => `k${i}`) }
+  const colorOf = useMemo(() => {
+    const m: Record<string, string> = {}
+    series.forEach((s, i) => (m[s.signal.label] = plotColor(i)))
+    return m
+  }, [series])
+  const seriesByLabel = useMemo(() => {
+    const m: Record<string, ChartSeries> = {}
+    series.forEach((s) => (m[s.signal.label] = s))
+    return m
   }, [series])
 
-  // Windowed peak of the highlighted (mark-peaks) line.
-  const peak = useMemo(() => {
-    if (!markPeaks || highlightI == null) return null
-    const s = series[highlightI]
+  // Lines targeted by scale/move gestures: the multi-selection, else the focused line.
+  const targetLabels = (): string[] => (selected.size ? [...selected] : focusKey ? [focusKey] : [])
+
+  function applyGain(factor: number) {
+    const targets = targetLabels()
+    if (!targets.length) return
+    setTransforms((prev) => {
+      const next = { ...prev }
+      for (const l of targets) {
+        const t = next[l] ?? { gain: 1, offset: 0 }
+        next[l] = { ...t, gain: +clamp(t.gain * factor, GAIN_MIN, GAIN_MAX).toFixed(3) }
+      }
+      return next
+    })
+  }
+  function applyOffset(delta: number) {
+    const targets = targetLabels()
+    if (!targets.length) return
+    setTransforms((prev) => {
+      const next = { ...prev }
+      for (const l of targets) {
+        const t = next[l] ?? { gain: 1, offset: 0 }
+        next[l] = { ...t, offset: +(t.offset + delta).toFixed(3) }
+      }
+      return next
+    })
+  }
+  function resetTransform(label: string) {
+    setTransforms((prev) => {
+      const next = { ...prev }
+      delete next[label]
+      return next
+    })
+  }
+  function toggleSelected(label: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(label)) next.delete(label)
+      else next.add(label)
+      return next
+    })
+  }
+
+  // Windowed peak of the highlighted line.
+  const peak = useMemo<Peak | null>(() => {
+    if (!markPeaks || !highlightKey) return null
+    const s = seriesByLabel[highlightKey]
     if (!s) return null
     const [lo, hi] = domain
     let bt: number | null = null
@@ -139,15 +176,15 @@ function CombinedChartImpl({
     if (bt == null) return null
     const range = s.signal.max - s.signal.min || 1
     return {
+      label: highlightKey,
       t: bt,
       value: bv,
       norm: (bv - s.signal.min) / range,
-      label: s.signal.label,
       unit: s.signal.unit,
       decimals: s.signal.decimals,
-      color: plotColor(highlightI),
+      color: colorOf[highlightKey],
     }
-  }, [markPeaks, highlightI, series, domain])
+  }, [markPeaks, highlightKey, seriesByLabel, domain, colorOf])
 
   const shownAnnotations = useMemo(() => annotations.filter((a) => !a.channel), [annotations])
 
@@ -159,7 +196,6 @@ function CombinedChartImpl({
     })
   }
 
-  // Remappable plot shortcuts.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const el = e.target as HTMLElement | null
@@ -178,123 +214,32 @@ function CombinedChartImpl({
         setFullscreen((v) => !v)
       } else if (e.key === "Escape") {
         if (fullscreen) setFullscreen(false)
-        else setFocusKey(null)
+        else {
+          setFocusKey(null)
+          setSelected(new Set())
+        }
       }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [series, bindings, fullscreen]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When Mark-peaks is on, the focused line's peak is highlighted automatically.
   useEffect(() => {
-    if (markPeaks && focusKey) setHighlightI(labels.indexOf(focusKey))
-  }, [focusKey, markPeaks]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (markPeaks && focusKey) setHighlightKey(focusKey)
+  }, [focusKey, markPeaks])
 
-  // Shift+scroll = gain on the focused line (non-passive so we can preventDefault).
-  useEffect(() => {
-    const el = wrapRef.current
-    if (!el) return
-    function onWheel(e: WheelEvent) {
-      if (!e.shiftKey || !focusKey) return
-      e.preventDefault()
-      setTransforms((prev) => {
-        const t = prev[focusKey] ?? { gain: 1, offset: 0 }
-        const gain = clamp(t.gain * (e.deltaY < 0 ? 1.12 : 1 / 1.12), GAIN_MIN, GAIN_MAX)
-        return { ...prev, [focusKey]: { ...t, gain: +gain.toFixed(3) } }
-      })
-    }
-    el.addEventListener("wheel", onWheel, { passive: false })
-    return () => el.removeEventListener("wheel", onWheel)
-  }, [focusKey])
+  // Partition series into panes.
+  const paneOf = (label: string): 0 | 1 => (split ? (plotAssign[label] ?? 0) : 0)
+  const panes: ChartSeries[][] = split
+    ? [series.filter((s) => paneOf(s.signal.label) === 0), series.filter((s) => paneOf(s.signal.label) === 1)]
+    : [series]
 
-  function pointerToT(clientX: number) {
-    const r = wrapRef.current!.getBoundingClientRect()
-    const w = Math.max(1, r.width - LEFT - RIGHT)
-    return +clamp(domain[0] + ((clientX - r.left - LEFT) / w) * (domain[1] - domain[0]), domain[0], domain[1]).toFixed(3)
+  function paneAxisLabel(paneSeries: ChartSeries[]): string | null {
+    if (focusKey && paneSeries.some((s) => s.signal.label === focusKey)) return focusKey
+    return paneSeries[0]?.signal.label ?? null
   }
-
-  function markNearest(clientX: number, clientY: number) {
-    const r = wrapRef.current!.getBoundingClientRect()
-    const usable = Math.max(1, r.height - AXIS_H - PLOT_TOP)
-    const ratio = clamp(1 - (clientY - r.top - PLOT_TOP) / usable, 0, 1)
-    const t = pointerToT(clientX)
-    const row = rows.reduce((best, x) => (Math.abs((x.t as number) - t) < Math.abs((best.t as number) - t) ? x : best), rows[0])
-    let bi = 0
-    let bd = Infinity
-    keys.forEach((k, i) => {
-      const disp = applyTf(row?.[k] ?? null, series[i].signal.label)
-      if (disp == null) return
-      const d = Math.abs(disp - ratio)
-      if (d < bd) {
-        bd = d
-        bi = i
-      }
-    })
-    setHighlightI(bi)
-  }
-
-  function onPointerDown(e: React.PointerEvent) {
-    if (!wrapRef.current) return
-    if (e.shiftKey && focusKey) {
-      e.preventDefault()
-      offsetDragRef.current = { startY: e.clientY, startOffset: tf(focusKey).offset }
-      wrapRef.current.setPointerCapture(e.pointerId)
-      return
-    }
-    if (annotateMode || markPeaks) {
-      clickRef.current = { x: e.clientX, y: e.clientY, moved: false }
-      wrapRef.current.setPointerCapture(e.pointerId)
-      return
-    }
-    dragRef.current = { moved: false }
-    wrapRef.current.setPointerCapture(e.pointerId)
-    onCursorChange(pointerToT(e.clientX))
-  }
-  function onPointerMove(e: React.PointerEvent) {
-    if (offsetDragRef.current && focusKey) {
-      const usable = Math.max(1, (wrapRef.current?.getBoundingClientRect().height ?? 416) - AXIS_H - PLOT_TOP)
-      const dy = e.clientY - offsetDragRef.current.startY
-      const offset = offsetDragRef.current.startOffset - dy / usable
-      setTransforms((prev) => ({ ...prev, [focusKey]: { ...(prev[focusKey] ?? { gain: 1, offset: 0 }), offset: +offset.toFixed(3) } }))
-      return
-    }
-    if (clickRef.current) {
-      if (Math.abs(e.clientX - clickRef.current.x) > 3 || Math.abs(e.clientY - clickRef.current.y) > 3) clickRef.current.moved = true
-      return
-    }
-    if (dragRef.current) {
-      dragRef.current.moved = true
-      onCursorChange(pointerToT(e.clientX))
-    }
-  }
-  function onPointerUp(e: React.PointerEvent) {
-    if (offsetDragRef.current) {
-      offsetDragRef.current = null
-      return
-    }
-    if (clickRef.current) {
-      const c = clickRef.current
-      clickRef.current = null
-      if (!c.moved) {
-        const t = pointerToT(e.clientX)
-        if (annotateMode) onAddAnnotation(t, "")
-        else if (markPeaks) markNearest(e.clientX, e.clientY)
-      }
-      return
-    }
-    dragRef.current = null
-  }
-
-  function resetTransform(label: string) {
-    setTransforms((prev) => {
-      const next = { ...prev }
-      delete next[label]
-      return next
-    })
-  }
-
-  // Keep the peak dot + its value inside the plot area even when the line is scaled.
-  const peakDispY = peak ? clamp(applyTf(peak.norm, peak.label) ?? peak.norm, 0.06, 0.94) : 0
+  const paneHeight = (count: number) =>
+    fullscreen ? "min-h-0 flex-1" : count === 1 ? "h-[26rem]" : "h-[13rem]"
 
   return (
     <section
@@ -307,13 +252,26 @@ function CombinedChartImpl({
         <h3 className="text-sm font-semibold text-foreground">Analysis Plot</h3>
         <div className="flex items-center gap-2">
           <span className="mr-1 hidden font-mono text-[11px] text-muted-foreground lg:inline">
-            {focusKey ? `Focused: ${focusKey}` : "focus a line to scale it"}
+            {selected.size ? `${selected.size} selected` : focusKey ? `Focused: ${focusKey}` : "focus a line to scale it"}
           </span>
+          <button
+            type="button"
+            onClick={() => setSplit((v) => !v)}
+            aria-pressed={split}
+            title={split ? "Single plot" : "Split into two plots"}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors",
+              split ? "border-primary bg-primary/15 text-foreground" : "border-border bg-card text-muted-foreground hover:bg-secondary",
+            )}
+          >
+            {split ? <Rows2 className="size-3.5" /> : <Columns2 className="size-3.5" />}
+            {split ? "2 plots" : "Split"}
+          </button>
           <button
             type="button"
             onClick={() =>
               setMarkPeaks((v) => {
-                if (v) setHighlightI(null)
+                if (v) setHighlightKey(null)
                 return !v
               })
             }
@@ -341,145 +299,128 @@ function CombinedChartImpl({
       </header>
 
       <div className={cn("flex border-t border-border", fullscreen && "min-h-0 flex-1")}>
-        {/* Plot */}
-        <div
-          ref={wrapRef}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          className={cn(
-            "relative min-w-0 flex-1 touch-none select-none px-2",
-            fullscreen ? "h-full" : "h-[26rem]",
-            annotateMode ? "cursor-crosshair" : markPeaks ? "cursor-pointer" : "cursor-ew-resize",
-          )}
-        >
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={rows} margin={{ top: PLOT_TOP, right: RIGHT, left: 4, bottom: 4 }}>
-              {display.showGrid && (
-                <CartesianGrid stroke="var(--muted-foreground)" strokeOpacity={0.22} strokeDasharray="2 4" vertical horizontal />
-              )}
-              <XAxis
-                dataKey="t"
-                type="number"
-                domain={domain}
-                allowDataOverflow
-                tickLine={false}
-                axisLine={{ stroke: "var(--border)" }}
-                tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
-                minTickGap={40}
-                unit={timeUnit}
-              />
-              <YAxis width={LEFT} domain={[0, 1]} allowDataOverflow tickLine={false} axisLine={false} tick={false} />
-              {sync && cursorT != null && (
-                <ReferenceLine x={cursorT} stroke="var(--muted-foreground)" strokeOpacity={0.7} strokeDasharray="4 3" />
-              )}
-              {shownAnnotations.map((a) => (
-                <ReferenceLine
-                  key={a.id}
-                  x={a.t}
-                  stroke={colorForType(a.type)}
-                  strokeWidth={1.5}
-                  label={{ value: a.type, position: "insideTopLeft", fontSize: 10, fill: colorForType(a.type) }}
-                />
-              ))}
-              {keys.map((key, i) => {
-                const label = series[i].signal.label
-                const focused = focusKey === label
-                return (
-                  <Area
-                    key={key}
-                    type={display.curve}
-                    dataKey={(d: Record<string, number | null>) => applyTf(d[key] ?? null, label)}
-                    name={label}
-                    stroke={plotColor(i)}
-                    strokeWidth={focused ? display.lineWidth + 1 : display.lineWidth}
-                    strokeOpacity={focusKey == null || focused || !display.focusDim ? 1 : 0.22}
-                    fill="none"
-                    dot={false}
-                    activeDot={false}
-                    isAnimationActive={false}
-                    connectNulls
-                  />
-                )
-              })}
-              {peak && (
-                <ReferenceDot
-                  x={peak.t}
-                  y={peakDispY}
-                  r={5}
-                  fill={peak.color}
-                  stroke="var(--background)"
-                  strokeWidth={2}
-                  isFront
-                  label={{
-                    value: `▲ ${fmt(peak.value, peak.decimals)}${peak.unit !== "—" ? " " + peak.unit : ""}`,
-                    position: peakDispY > 0.6 ? "bottom" : "top",
-                    fontSize: 11,
-                    fontWeight: 600,
-                    fill: peak.color,
-                  }}
-                />
-              )}
-            </AreaChart>
-          </ResponsiveContainer>
+        <div className="flex min-w-0 flex-1 flex-col">
+          {panes.map((paneSeries, p) => (
+            <AnalysisPane
+              key={p}
+              paneSeries={paneSeries}
+              domain={domain}
+              sync={sync}
+              cursorT={cursorT}
+              display={display}
+              timeUnit={timeUnit}
+              transforms={transforms}
+              focusKey={focusKey}
+              selected={selected}
+              colorOf={colorOf}
+              seriesByLabel={seriesByLabel}
+              axisLabel={paneAxisLabel(paneSeries)}
+              peak={peak && paneSeries.some((s) => s.signal.label === peak.label) ? peak : null}
+              annotateMode={annotateMode}
+              markPeaks={markPeaks}
+              shownAnnotations={shownAnnotations}
+              heightClass={cn(paneHeight(panes.length), split && p > 0 && "border-t border-border")}
+              onCursorChange={onCursorChange}
+              onApplyGain={applyGain}
+              onApplyOffset={applyOffset}
+              onMarkNearest={setHighlightKey}
+              onAddAnnotation={onAddAnnotation}
+            />
+          ))}
         </div>
 
-        {/* Collapsible value/scale dock */}
+        {/* Dock */}
         {dockOpen ? (
-          <aside className="flex w-56 shrink-0 flex-col border-l border-border">
+          <aside className="flex w-60 shrink-0 flex-col border-l border-border">
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
               <span className="font-mono text-[11px] text-muted-foreground">
-                {cursorT != null ? `t = ${fmt(cursorT, 2)}${timeUnit}` : "Channels"}
+                {selected.size ? `${selected.size} selected` : cursorT != null ? `t = ${fmt(cursorT, 2)}${timeUnit}` : "Channels"}
               </span>
-              <button
-                type="button"
-                onClick={() => setDockOpen(false)}
-                aria-label="Collapse panel"
-                className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
-              >
-                <ChevronRight className="size-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                {selected.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelected(new Set())}
+                    className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  >
+                    Clear
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setDockOpen(false)}
+                  aria-label="Collapse panel"
+                  className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
+                >
+                  <ChevronRight className="size-4" />
+                </button>
+              </div>
             </div>
             <ul className="flex-1 overflow-y-auto py-1">
-              {series.map((s, i) => {
+              {series.map((s) => {
                 const label = s.signal.label
                 const focused = focusKey === label
+                const isSel = selected.has(label)
                 const t = transforms[label]
                 const v = cursorT != null ? nearest(s.signal.data, cursorT).value : null
                 return (
-                  <li key={s.id}>
-                    <div
+                  <li
+                    key={s.id}
+                    className={cn("flex items-center gap-1.5 px-2 py-1.5 transition-colors", focused ? "bg-secondary" : "hover:bg-secondary/50")}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleSelected(label)}
+                      aria-pressed={isSel}
+                      title="Select for group scaling"
                       className={cn(
-                        "flex items-center gap-2 px-3 py-1.5 transition-colors",
-                        focused ? "bg-secondary" : "hover:bg-secondary/50",
+                        "flex size-4 shrink-0 items-center justify-center rounded border transition-colors",
+                        isSel ? "border-primary bg-primary text-primary-foreground" : "border-border",
                       )}
                     >
-                      <button type="button" onClick={() => setFocusKey(focused ? null : label)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                        <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: plotColor(i) }} />
-                        <span className={cn("min-w-0 flex-1 truncate text-xs", focused ? "text-foreground" : "text-muted-foreground")}>{label}</span>
+                      {isSel && <span className="size-1.5 rounded-[1px] bg-primary-foreground" />}
+                    </button>
+                    <button type="button" onClick={() => setFocusKey(focused ? null : label)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                      <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: colorOf[label] }} />
+                      <span className={cn("min-w-0 flex-1 truncate text-xs", focused ? "text-foreground" : "text-muted-foreground")}>{label}</span>
+                    </button>
+                    {split && (
+                      <div className="flex shrink-0 overflow-hidden rounded border border-border text-[9px] font-mono">
+                        {([0, 1] as const).map((pi) => (
+                          <button
+                            key={pi}
+                            type="button"
+                            onClick={() => setPlotAssign((prev) => ({ ...prev, [label]: pi }))}
+                            className={cn("px-1", paneOf(label) === pi ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary")}
+                          >
+                            {pi + 1}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {t && (
+                      <button
+                        type="button"
+                        onClick={() => resetTransform(label)}
+                        title={`Scale ×${t.gain.toFixed(1)} — reset`}
+                        className="inline-flex shrink-0 items-center rounded px-1 text-[10px] font-mono text-primary hover:bg-secondary"
+                      >
+                        ×{t.gain.toFixed(1)}
+                        <RotateCcw className="ml-0.5 size-3" />
                       </button>
-                      {t && (
-                        <button
-                          type="button"
-                          onClick={() => resetTransform(label)}
-                          title={`Scale ×${t.gain.toFixed(1)} — reset`}
-                          className="inline-flex shrink-0 items-center gap-0.5 rounded px-1 text-[10px] font-mono text-primary hover:bg-secondary"
-                        >
-                          ×{t.gain.toFixed(1)}
-                          <RotateCcw className="size-3" />
-                        </button>
-                      )}
-                      <span className="w-14 shrink-0 text-right font-mono text-[11px] tabular-nums" style={{ color: focused ? plotColor(i) : undefined }}>
+                    )}
+                    {!split && (
+                      <span className="w-12 shrink-0 text-right font-mono text-[11px] tabular-nums" style={{ color: focused ? colorOf[label] : undefined }}>
                         {v == null ? "—" : fmt(v, s.signal.decimals)}
                       </span>
-                    </div>
+                    )}
                   </li>
                 )
               })}
             </ul>
             <div className="border-t border-border px-3 py-2 text-[10px] leading-relaxed text-muted-foreground">
-              Click a channel or press <kbd className="font-mono">[</kbd>/<kbd className="font-mono">]</kbd> to focus. Shift+scroll
-              scales it; Shift+drag moves it.
+              Tick channels to scale several at once · Shift+scroll scales · Shift+drag moves · the left axis shows the focused line's real
+              values.
             </div>
           </aside>
         ) : (
@@ -494,6 +435,291 @@ function CombinedChartImpl({
         )}
       </div>
     </section>
+  )
+}
+
+function AnalysisPane({
+  paneSeries,
+  domain,
+  sync,
+  cursorT,
+  display,
+  timeUnit,
+  transforms,
+  focusKey,
+  selected,
+  colorOf,
+  seriesByLabel,
+  axisLabel,
+  peak,
+  annotateMode,
+  markPeaks,
+  shownAnnotations,
+  heightClass,
+  onCursorChange,
+  onApplyGain,
+  onApplyOffset,
+  onMarkNearest,
+  onAddAnnotation,
+}: {
+  paneSeries: ChartSeries[]
+  domain: [number, number]
+  sync: boolean
+  cursorT: number | null
+  display: DisplaySettings
+  timeUnit: string
+  transforms: Record<string, Transform>
+  focusKey: string | null
+  selected: Set<string>
+  colorOf: Record<string, string>
+  seriesByLabel: Record<string, ChartSeries>
+  axisLabel: string | null
+  peak: Peak | null
+  annotateMode: boolean
+  markPeaks: boolean
+  shownAnnotations: Annotation[]
+  heightClass: string
+  onCursorChange: (t: number | null) => void
+  onApplyGain: (factor: number) => void
+  onApplyOffset: (delta: number) => void
+  onMarkNearest: (label: string) => void
+  onAddAnnotation: (t: number, channel: string) => void
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<{ moved: boolean } | null>(null)
+  const clickRef = useRef<{ x: number; y: number; moved: boolean } | null>(null)
+  const offsetDragRef = useRef<{ startY: number } | null>(null)
+  // latest gesture handlers (so the wheel listener binds once)
+  const gainRef = useRef(onApplyGain)
+  gainRef.current = onApplyGain
+
+  const tf = (label: string): Transform => transforms[label] ?? { gain: 1, offset: 0 }
+
+  const { rows, keys } = useMemo(() => {
+    const map = new Map<number, Record<string, number | null>>()
+    paneSeries.forEach((s, si) => {
+      const key = `k${si}`
+      const range = s.signal.max - s.signal.min || 1
+      for (const d of lttb(s.signal.data, RENDER_POINTS)) {
+        let row = map.get(d.t)
+        if (!row) {
+          row = { t: d.t }
+          map.set(d.t, row)
+        }
+        row[key] = d.value == null ? null : (d.value - s.signal.min) / range
+      }
+    })
+    return { rows: [...map.values()].sort((a, b) => (a.t as number) - (b.t as number)), keys: paneSeries.map((_, i) => `k${i}`) }
+  }, [paneSeries])
+
+  // Shift+scroll → scale targeted lines (non-passive listener).
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    function onWheel(e: WheelEvent) {
+      if (!e.shiftKey) return
+      e.preventDefault()
+      gainRef.current(e.deltaY < 0 ? 1.12 : 1 / 1.12)
+    }
+    el.addEventListener("wheel", onWheel, { passive: false })
+    return () => el.removeEventListener("wheel", onWheel)
+  }, [])
+
+  function pointerToT(clientX: number) {
+    const r = wrapRef.current!.getBoundingClientRect()
+    const w = Math.max(1, r.width - LEFT - RIGHT)
+    return +clamp(domain[0] + ((clientX - r.left - LEFT) / w) * (domain[1] - domain[0]), domain[0], domain[1]).toFixed(3)
+  }
+  function usableH() {
+    return Math.max(1, (wrapRef.current?.getBoundingClientRect().height ?? 300) - AXIS_H - PLOT_TOP)
+  }
+
+  function markNearest(clientX: number, clientY: number) {
+    const r = wrapRef.current!.getBoundingClientRect()
+    const ratio = clamp(1 - (clientY - r.top - PLOT_TOP) / usableH(), 0, 1)
+    const t = pointerToT(clientX)
+    if (!rows.length) return
+    const row = rows.reduce((best, x) => (Math.abs((x.t as number) - t) < Math.abs((best.t as number) - t) ? x : best), rows[0])
+    let bestLabel = paneSeries[0]?.signal.label
+    let bd = Infinity
+    keys.forEach((k, i) => {
+      const label = paneSeries[i].signal.label
+      const disp = applyTf(row?.[k] ?? null, tf(label))
+      if (disp == null) return
+      const d = Math.abs(disp - ratio)
+      if (d < bd) {
+        bd = d
+        bestLabel = label
+      }
+    })
+    if (bestLabel) onMarkNearest(bestLabel)
+  }
+
+  function onPointerDown(e: React.PointerEvent) {
+    if (!wrapRef.current) return
+    if (e.shiftKey) {
+      e.preventDefault()
+      offsetDragRef.current = { startY: e.clientY }
+      wrapRef.current.setPointerCapture(e.pointerId)
+      return
+    }
+    if (annotateMode || markPeaks) {
+      clickRef.current = { x: e.clientX, y: e.clientY, moved: false }
+      wrapRef.current.setPointerCapture(e.pointerId)
+      return
+    }
+    dragRef.current = { moved: false }
+    wrapRef.current.setPointerCapture(e.pointerId)
+    onCursorChange(pointerToT(e.clientX))
+  }
+  function onPointerMove(e: React.PointerEvent) {
+    if (offsetDragRef.current) {
+      const dy = e.clientY - offsetDragRef.current.startY
+      offsetDragRef.current.startY = e.clientY
+      onApplyOffset(-dy / usableH())
+      return
+    }
+    if (clickRef.current) {
+      if (Math.abs(e.clientX - clickRef.current.x) > 3 || Math.abs(e.clientY - clickRef.current.y) > 3) clickRef.current.moved = true
+      return
+    }
+    if (dragRef.current) {
+      dragRef.current.moved = true
+      onCursorChange(pointerToT(e.clientX))
+    }
+  }
+  function onPointerUp(e: React.PointerEvent) {
+    if (offsetDragRef.current) {
+      offsetDragRef.current = null
+      return
+    }
+    if (clickRef.current) {
+      const c = clickRef.current
+      clickRef.current = null
+      if (!c.moved) {
+        if (annotateMode) onAddAnnotation(pointerToT(e.clientX), "")
+        else if (markPeaks) markNearest(e.clientX, e.clientY)
+      }
+      return
+    }
+    dragRef.current = null
+  }
+
+  const activeSet = new Set(selected)
+  if (focusKey) activeSet.add(focusKey)
+  const hasActive = activeSet.size > 0
+
+  // Real-units Y axis for the pane's axis channel.
+  const axisSig = axisLabel ? seriesByLabel[axisLabel] : null
+  const axisColor = axisLabel ? colorOf[axisLabel] : "var(--muted-foreground)"
+  function realAt(y: number): string {
+    if (!axisSig) return ""
+    const t = tf(axisLabel!)
+    const range = axisSig.signal.max - axisSig.signal.min || 1
+    const norm = (y - 0.5 - t.offset) / t.gain + 0.5
+    const real = axisSig.signal.min + range * norm
+    return fmt(real, Math.abs(real) >= 100 ? 0 : axisSig.signal.decimals <= 1 ? 1 : 2)
+  }
+
+  const peakDispY = peak ? clamp(applyTf(peak.norm, tf(peak.label)) ?? peak.norm, 0.06, 0.94) : 0
+
+  return (
+    <div
+      ref={wrapRef}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      className={cn(
+        "relative w-full touch-none select-none px-2",
+        heightClass,
+        annotateMode ? "cursor-crosshair" : "cursor-ew-resize",
+      )}
+    >
+      {axisLabel && axisSig && (
+        <span className="pointer-events-none absolute left-2 top-1 z-10 font-mono text-[10px]" style={{ color: axisColor }}>
+          {axisLabel}
+          {axisSig.signal.unit !== "—" ? ` (${axisSig.signal.unit})` : ""}
+        </span>
+      )}
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={rows} margin={{ top: PLOT_TOP, right: RIGHT, left: 4, bottom: 4 }}>
+          {display.showGrid && (
+            <CartesianGrid stroke="var(--muted-foreground)" strokeOpacity={0.22} strokeDasharray="2 4" vertical horizontal />
+          )}
+          <XAxis
+            dataKey="t"
+            type="number"
+            domain={domain}
+            allowDataOverflow
+            tickLine={false}
+            axisLine={{ stroke: "var(--border)" }}
+            tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
+            minTickGap={40}
+            unit={timeUnit}
+          />
+          <YAxis
+            width={LEFT}
+            domain={[0, 1]}
+            allowDataOverflow
+            ticks={[0, 0.25, 0.5, 0.75, 1]}
+            tickLine={false}
+            axisLine={false}
+            tick={axisSig ? { fill: axisColor, fontSize: 10 } : false}
+            tickFormatter={axisSig ? realAt : undefined}
+          />
+          {sync && cursorT != null && (
+            <ReferenceLine x={cursorT} stroke="var(--muted-foreground)" strokeOpacity={0.7} strokeDasharray="4 3" />
+          )}
+          {shownAnnotations.map((a) => (
+            <ReferenceLine
+              key={a.id}
+              x={a.t}
+              stroke={colorForType(a.type)}
+              strokeWidth={1.5}
+              label={{ value: a.type, position: "insideTopLeft", fontSize: 10, fill: colorForType(a.type) }}
+            />
+          ))}
+          {keys.map((key, i) => {
+            const label = paneSeries[i].signal.label
+            const isActive = activeSet.has(label)
+            return (
+              <Area
+                key={key}
+                type={display.curve}
+                dataKey={(d: Record<string, number | null>) => applyTf(d[key] ?? null, tf(label))}
+                name={label}
+                stroke={colorOf[label]}
+                strokeWidth={isActive ? display.lineWidth + 1 : display.lineWidth}
+                strokeOpacity={!hasActive || isActive || !display.focusDim ? 1 : 0.22}
+                fill="none"
+                dot={false}
+                activeDot={false}
+                isAnimationActive={false}
+                connectNulls
+              />
+            )
+          })}
+          {peak && (
+            <ReferenceDot
+              x={peak.t}
+              y={peakDispY}
+              r={5}
+              fill={peak.color}
+              stroke="var(--background)"
+              strokeWidth={2}
+              isFront
+              label={{
+                value: `▲ ${fmt(peak.value, peak.decimals)}${peak.unit !== "—" ? " " + peak.unit : ""}`,
+                position: peakDispY > 0.6 ? "bottom" : "top",
+                fontSize: 11,
+                fontWeight: 600,
+                fill: peak.color,
+              }}
+            />
+          )}
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
   )
 }
 
