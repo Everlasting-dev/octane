@@ -39,6 +39,7 @@ interface CombinedChartProps {
   setFocusKey: Dispatch<SetStateAction<string | null>>
   markPeaks: boolean
   setMarkPeaks: Dispatch<SetStateAction<boolean>>
+  modalOpen: boolean
   onCursorChange: (t: number | null) => void
   onAddAnnotation: (t: number, channel: string) => void
 }
@@ -91,6 +92,7 @@ function CombinedChartImpl({
   setFocusKey,
   markPeaks,
   setMarkPeaks,
+  modalOpen,
   onCursorChange,
   onAddAnnotation,
 }: CombinedChartProps) {
@@ -213,6 +215,7 @@ function CombinedChartImpl({
         e.preventDefault()
         setFullscreen((v) => !v)
       } else if (e.key === "Escape") {
+        if (modalOpen) return // a dialog is open — let the dashboard close it first
         if (fullscreen) setFullscreen(false)
         else {
           setFocusKey(null)
@@ -222,7 +225,7 @@ function CombinedChartImpl({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [series, bindings, fullscreen]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [series, bindings, fullscreen, modalOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (markPeaks && focusKey) setHighlightKey(focusKey)
@@ -244,8 +247,10 @@ function CombinedChartImpl({
   return (
     <section
       className={cn(
-        "overflow-hidden border border-border bg-card/60",
-        fullscreen ? "fixed inset-0 z-50 flex flex-col rounded-none" : "rounded-xl",
+        "overflow-hidden border border-border",
+        fullscreen
+          ? "fixed inset-0 z-50 flex flex-col rounded-none bg-background/90 backdrop-blur-2xl"
+          : "rounded-xl bg-card/60",
       )}
     >
       <header className="flex items-center justify-between gap-3 px-4 py-3">
@@ -409,11 +414,9 @@ function CombinedChartImpl({
                         <RotateCcw className="ml-0.5 size-3" />
                       </button>
                     )}
-                    {!split && (
-                      <span className="w-12 shrink-0 text-right font-mono text-[11px] tabular-nums" style={{ color: focused ? colorOf[label] : undefined }}>
-                        {v == null ? "—" : fmt(v, s.signal.decimals)}
-                      </span>
-                    )}
+                    <span className="w-12 shrink-0 text-right font-mono text-[11px] tabular-nums" style={{ color: focused ? colorOf[label] : undefined }}>
+                      {v == null ? "—" : fmt(v, s.signal.decimals)}
+                    </span>
                   </li>
                 )
               })}
@@ -636,7 +639,7 @@ function AnalysisPane({
       )}
     >
       {axisLabel && axisSig && (
-        <span className="pointer-events-none absolute left-2 top-1 z-10 font-mono text-[10px]" style={{ color: axisColor }}>
+        <span className="pointer-events-none absolute right-3 top-1 z-10 rounded bg-background/70 px-1 font-mono text-[10px]" style={{ color: axisColor }}>
           {axisLabel}
           {axisSig.signal.unit !== "—" ? ` (${axisSig.signal.unit})` : ""}
         </span>

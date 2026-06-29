@@ -1,7 +1,7 @@
 "use client"
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
-import { Download, TriangleAlert, Upload, X } from "lucide-react"
+import { Download, Search, TriangleAlert, Upload, X } from "lucide-react"
 import { type SignalKey } from "@/lib/telemetry"
 import { parseLogFile, type ParsedLog } from "@/lib/csv"
 import { SAMPLE_LOG } from "@/lib/sample"
@@ -77,8 +77,9 @@ function openCsvDialog(onPick: (file: File) => void) {
     },
     { once: true },
   )
-  // If the dialog is cancelled, clean up shortly after focus returns.
-  window.addEventListener("focus", () => setTimeout(cleanup, 800), { once: true })
+  // Leak guard only — removing the input too early (e.g. on a focus race) was
+  // cancelling the dialog and causing random "upload failed". 5 min is safe.
+  setTimeout(cleanup, 5 * 60 * 1000)
   input.click()
 }
 
@@ -144,6 +145,9 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
   const [showAbout, setShowAbout] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showMetadata, setShowMetadata] = useState(false)
+  const [quickOpen, setQuickOpen] = useState(false)
+  const [matrixQuery, setMatrixQuery] = useState("")
+  const quickRef = useRef<HTMLInputElement>(null)
 
   const searchRef = useRef<HTMLInputElement>(null)
   const mainRef = useRef<HTMLDivElement>(null)
@@ -520,6 +524,11 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
   }
 
   const visibleChannels = useMemo(() => channels.filter((c) => !hidden.has(c.key)), [channels, hidden])
+  // Quick-search overrides the checklist for the Signal Matrix: type to view any plot fast.
+  const matrixChannels = useMemo(() => {
+    const q = matrixQuery.trim().toLowerCase()
+    return q ? channels.filter((c) => c.label.toLowerCase().includes(q)) : visibleChannels
+  }, [matrixQuery, channels, visibleChannels])
   const activeCount = visibleChannels.length
 
   const kpis = useMemo(
@@ -557,11 +566,17 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
     {
       key: "Escape",
       description: "Close dialogs / exit annotate",
+      // Priority: close the top-most thing only. The Analysis Plot handles its own
+      // Escape (fullscreen → focus) when no modal/draft is open.
       handler: () => {
-        setShowAbout(false)
-        setShowSettings(false)
-        setAnnotationDraft(null)
-        setAnnotate(false)
+        if (showAbout) setShowAbout(false)
+        else if (showSettings) setShowSettings(false)
+        else if (annotationDraft) setAnnotationDraft(null)
+        else if (annotate) setAnnotate(false)
+        else if (quickOpen) {
+          setMatrixQuery("")
+          setQuickOpen(false)
+        }
       },
     },
   ]
@@ -712,11 +727,55 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
                   </div>
                 )}
 
-                <div className="mt-5 mb-3 flex items-center justify-between">
-                  <h2 className="text-sm font-semibold text-foreground">
+                <div className="mt-5 mb-3 flex items-center justify-between gap-3">
+                  <h2 className="shrink-0 text-sm font-semibold text-foreground">
                     {view === "plot" ? "Analysis Plot" : comparing ? "Comparison" : "Signal Matrix"}
                   </h2>
-                  <span className="font-mono text-xs text-muted-foreground">
+                  {!comparing && view !== "plot" && (
+                    <div className="flex flex-1 items-center justify-end gap-2">
+                      {quickOpen ? (
+                        <div className="relative w-full max-w-xs">
+                          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                          <input
+                            ref={quickRef}
+                            autoFocus
+                            value={matrixQuery}
+                            onChange={(e) => setMatrixQuery(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") {
+                                setMatrixQuery("")
+                                setQuickOpen(false)
+                              }
+                            }}
+                            placeholder="Quick search — show a plot…"
+                            className="h-8 w-full rounded-md border border-border bg-card pl-8 pr-8 text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMatrixQuery("")
+                              setQuickOpen(false)
+                            }}
+                            aria-label="Close quick search"
+                            className="absolute right-1.5 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
+                          >
+                            <X className="size-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setQuickOpen(true)}
+                          title="Quick search a plot"
+                          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                        >
+                          <Search className="size-3.5" />
+                          Quick search
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground">
                     {domain[0].toFixed(1)}
                     {timeUnit} – {domain[1].toFixed(1)}
                     {timeUnit}
@@ -743,11 +802,12 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
                     onToggleLock={() => setCompareLocked((v) => !v)}
                     onCursorChange={setCursorT}
                   />
-                ) : visibleChannels.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-border py-16 text-center text-sm text-muted-foreground">
-                    No channels selected. Enable some from the panel on the left.
-                  </div>
                 ) : view === "plot" ? (
+                  visibleChannels.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-border py-16 text-center text-sm text-muted-foreground">
+                      No channels selected. Enable some from the panel on the left.
+                    </div>
+                  ) : (
                   <div className="pb-4">
                     <CombinedChart
                       series={visibleChannels.map((c) => c.series[0])}
@@ -764,13 +824,19 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
                       setFocusKey={setAnalysisFocus}
                       markPeaks={analysisMarkPeaks}
                       setMarkPeaks={setAnalysisMarkPeaks}
+                      modalOpen={showAbout || showSettings || annotationDraft != null}
                       onCursorChange={setCursorT}
                       onAddAnnotation={openAnnotation}
                     />
                   </div>
+                  )
+                ) : matrixChannels.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-border py-16 text-center text-sm text-muted-foreground">
+                    {matrixQuery ? `No channels match “${matrixQuery}”.` : "No channels selected. Enable some from the panel on the left."}
+                  </div>
                 ) : (
                   <div className="flex flex-col gap-4 pb-4">
-                    {visibleChannels.map((c) => (
+                    {matrixChannels.map((c) => (
                       <SignalChart
                         key={c.key}
                         channelKey={c.key}

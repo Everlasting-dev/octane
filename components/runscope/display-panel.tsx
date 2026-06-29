@@ -14,7 +14,7 @@ export interface DisplaySettings {
 }
 
 export const DEFAULT_DISPLAY: DisplaySettings = {
-  lineWidth: 1.75,
+  lineWidth: 0.5,
   curve: "monotone",
   showGrid: true,
   height: "normal",

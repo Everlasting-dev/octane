@@ -257,7 +257,7 @@ function SignalChartImpl({
                 onMouseLeave={endDrag}
               >
                 {display.showGrid && (
-                  <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+                  <CartesianGrid stroke="var(--muted-foreground)" strokeOpacity={0.18} strokeDasharray="2 4" vertical horizontal />
                 )}
                 <XAxis
                   dataKey="t"

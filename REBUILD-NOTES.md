@@ -228,6 +228,22 @@ left in place for now (not deleted) but should be considered retired.
   areas can be filled from a saved **template**. Compare state lives in
   `dashboard.tsx` (`compareAreas`, `fileOffsets`, `activeCompareFile`).
 
+## Phase 22 — v1.0.1 bug batch
+
+- **Random upload failure fixed**: `openCsvDialog` removed the focus-based cleanup
+  (it could remove the `<input>` mid-dialog → silent cancel); now a 5-min leak guard.
+- **Signal Matrix gridlines**: H+V dotted grid (was horizontal-only).
+- **Quick search** in the Signal Matrix header: a toggle/input that shows any
+  channel's plot fast (overrides the checklist; `matrixChannels`).
+- **Split-plot values**: the dock value column now shows in split mode too.
+- **Channel heading** moved to the top-right (no longer covers the top Y-axis tick).
+- **Escape priority**: dialogs/quick-search close first; the plot only handles
+  Escape (fullscreen → focus) when nothing is open (`modalOpen` prop).
+- **Default line thickness** 0.5 px.
+- **Fullscreen plot** blurs the underlay (`bg-background/90 backdrop-blur-2xl`).
+- **Brighter Signal-Matrix lines**: grayscale chart tokens lightened (0.55–0.92).
+- Version bumped to **1.0.1** and published so existing 1.0.0 installs auto-update.
+
 ## Phase 21 — Analysis Plot: split panes, real-units Y axis, multi-select scaling
 
 - **Split toggle** (`combined-chart.tsx`): the Analysis Plot can render **two
