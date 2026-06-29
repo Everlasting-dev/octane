@@ -100,6 +100,18 @@ function checkForUpdates() {
   }
 }
 
+// Run code in the renderer, guarded against a disposed frame (avoids
+// "Render frame was disposed before WebFrameMain could be accessed").
+function runInRenderer(win, code) {
+  try {
+    if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
+      win.webContents.executeJavaScript(code).catch(() => {})
+    }
+  } catch {
+    /* frame gone */
+  }
+}
+
 function buildMenu(win) {
   const template = [
     {
@@ -108,7 +120,7 @@ function buildMenu(win) {
         {
           label: "Open log…",
           accelerator: "CmdOrCtrl+O",
-          click: () => win.webContents.executeJavaScript("window.__octaneOpenLog && window.__octaneOpenLog()"),
+          click: () => runInRenderer(win, "window.__octaneOpenLog && window.__octaneOpenLog()"),
         },
         { type: "separator" },
         { role: "quit" },
@@ -130,7 +142,7 @@ function buildMenu(win) {
         { label: "Check for Updates…", click: () => checkForUpdates() },
         {
           label: "About Octane",
-          click: () => win.webContents.executeJavaScript("window.__octaneOpenAbout && window.__octaneOpenAbout()"),
+          click: () => runInRenderer(win, "window.__octaneOpenAbout && window.__octaneOpenAbout()"),
         },
       ],
     },

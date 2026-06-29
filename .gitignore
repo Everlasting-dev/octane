@@ -7,3 +7,6 @@ release/
 .env*.local
 
 *.tsbuildinfo
+
+# Internal development notes — not for the public repo
+REBUILD-NOTES.md

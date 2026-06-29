@@ -4,6 +4,8 @@ import { useEffect, useState } from "react"
 import { ChevronLeft, ChevronRight, Keyboard, LogOut, X } from "lucide-react"
 import { DisplayPanel, type DisplaySettings } from "./display-panel"
 import { isDesktopAuth, logout } from "@/lib/auth"
+import { getVinMode, setVinMode } from "@/lib/vin/settings"
+import type { VinMode } from "@/lib/vin/types"
 import {
   ACTIONS,
   DEFAULT_BINDINGS,
@@ -104,9 +106,13 @@ export function SettingsModal({
   onClose: () => void
 }) {
   const [page, setPage] = useState<"main" | "keys">("main")
-  // Always return to the main page each time the modal opens.
+  const [vinMode, setVinModeState] = useState<VinMode>("online")
+  // Always return to the main page each time the modal opens; sync VIN mode.
   useEffect(() => {
-    if (open) setPage("main")
+    if (open) {
+      setPage("main")
+      setVinModeState(getVinMode())
+    }
   }, [open])
 
   if (!open) return null
@@ -158,6 +164,31 @@ export function SettingsModal({
               </span>
               <ChevronRight className="size-4 text-muted-foreground" />
             </button>
+
+            <div className="flex flex-col gap-2 border-t border-border pt-4">
+              <span className="text-xs font-medium text-foreground">VIN decoding</span>
+              <div className="flex rounded-lg border border-border bg-secondary/40 p-0.5">
+                {(["online", "local", "off"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => {
+                      setVinMode(m)
+                      setVinModeState(m)
+                    }}
+                    className={cn(
+                      "flex-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+                      vinMode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {m === "online" ? "Online" : m === "local" ? "Local only" : "Off"}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] leading-relaxed text-muted-foreground">
+                Online uses the public NHTSA database; Local only decodes offline from the VIN; Off disables it.
+              </p>
+            </div>
 
             {isDesktopAuth() && (
               <div className="border-t border-border pt-4">

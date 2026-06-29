@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react"
 import { Landing } from "./landing"
 import { Dashboard, type DashboardHandle } from "./dashboard"
 import { LoginScreen } from "./login-screen"
+import { ErrorBoundary } from "./error-boundary"
 import { getAuthState } from "@/lib/auth"
 import type { ParsedLog } from "@/lib/csv"
 
@@ -46,13 +47,13 @@ export function AppShell() {
   const showLanding = !inAnalysis || showLandingOverlay
 
   return (
-    <>
+    <ErrorBoundary>
       {inAnalysis && <Dashboard ref={dashRef} initialLog={initialLog} onHome={() => setShowLandingOverlay(true)} />}
       {showLanding && (
         <div className="fixed inset-0 z-40 overflow-auto bg-background">
           <Landing onOpen={openLog} canResume={inAnalysis} onResume={() => setShowLandingOverlay(false)} />
         </div>
       )}
-    </>
+    </ErrorBoundary>
   )
 }

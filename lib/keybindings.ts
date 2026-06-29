@@ -6,11 +6,15 @@ import { useEffect, useState } from "react"
 export type ActionId =
   | "focusNext"
   | "focusPrev"
+  | "selectLine"
+  | "movePlot"
   | "peakToggle"
   | "fullscreen"
-  | "heightCycle"
+  | "quickSearch"
+  | "cycleFile"
   | "toggleGrid"
   | "lockCompare"
+  | "heightCycle"
   | "sync"
   | "annotate"
   | "reset"
@@ -21,8 +25,12 @@ export type ActionId =
 export const ACTIONS: { id: ActionId; label: string; scope: "plot" | "global" }[] = [
   { id: "focusNext", label: "Focus next line (Analysis Plot)", scope: "plot" },
   { id: "focusPrev", label: "Focus previous line (Analysis Plot)", scope: "plot" },
+  { id: "selectLine", label: "Select / deselect focused line", scope: "plot" },
+  { id: "movePlot", label: "Send focused line to the other plot", scope: "plot" },
   { id: "peakToggle", label: "Toggle peak markers", scope: "plot" },
   { id: "fullscreen", label: "Fullscreen the plot", scope: "plot" },
+  { id: "quickSearch", label: "Quick search (Signal Matrix)", scope: "global" },
+  { id: "cycleFile", label: "Cycle active / reference file", scope: "global" },
   { id: "toggleGrid", label: "Toggle grid lines", scope: "global" },
   { id: "lockCompare", label: "Lock alignment (Compare)", scope: "global" },
   { id: "heightCycle", label: "Cycle chart height (Signal Matrix)", scope: "global" },
@@ -39,8 +47,12 @@ export type Bindings = Record<ActionId, string>
 export const DEFAULT_BINDINGS: Bindings = {
   focusNext: "]",
   focusPrev: "[",
+  selectLine: " ",
+  movePlot: "m",
   peakToggle: "p",
   fullscreen: "f",
+  quickSearch: "/",
+  cycleFile: ".",
   heightCycle: "h",
   toggleGrid: "g",
   lockCompare: "l",

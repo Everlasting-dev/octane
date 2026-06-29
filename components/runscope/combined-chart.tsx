@@ -158,6 +158,19 @@ function CombinedChartImpl({
       return next
     })
   }
+  // Send the targeted lines to the other plot (enabling split).
+  function moveTargetsToOtherPlot() {
+    const targets = targetLabels()
+    if (!targets.length) return
+    setSplit(true)
+    const ref = focusKey ?? targets[0]
+    const dest: 0 | 1 = (plotAssign[ref] ?? 0) === 1 ? 0 : 1
+    setPlotAssign((prev) => {
+      const next = { ...prev }
+      for (const l of targets) next[l] = dest
+      return next
+    })
+  }
 
   // Windowed peak of the highlighted line.
   const peak = useMemo<Peak | null>(() => {
@@ -208,6 +221,12 @@ function CombinedChartImpl({
       } else if (matchesKey(e, bindings.focusPrev)) {
         e.preventDefault()
         cycleFocus(-1)
+      } else if (matchesKey(e, bindings.selectLine)) {
+        e.preventDefault()
+        if (focusKey) toggleSelected(focusKey)
+      } else if (matchesKey(e, bindings.movePlot)) {
+        e.preventDefault()
+        moveTargetsToOtherPlot()
       } else if (matchesKey(e, bindings.peakToggle)) {
         e.preventDefault()
         setMarkPeaks((v) => !v)
@@ -225,7 +244,7 @@ function CombinedChartImpl({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [series, bindings, fullscreen, modalOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [series, bindings, fullscreen, modalOpen, focusKey, selected, plotAssign]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (markPeaks && focusKey) setHighlightKey(focusKey)
@@ -336,7 +355,7 @@ function CombinedChartImpl({
 
         {/* Dock */}
         {dockOpen ? (
-          <aside className="flex w-60 shrink-0 flex-col border-l border-border">
+          <aside className="flex w-64 shrink-0 flex-col border-l border-border">
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
               <span className="font-mono text-[11px] text-muted-foreground">
                 {selected.size ? `${selected.size} selected` : cursorT != null ? `t = ${fmt(cursorT, 2)}${timeUnit}` : "Channels"}
@@ -385,7 +404,7 @@ function CombinedChartImpl({
                     >
                       {isSel && <span className="size-1.5 rounded-[1px] bg-primary-foreground" />}
                     </button>
-                    <button type="button" onClick={() => setFocusKey(focused ? null : label)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                    <button type="button" onClick={() => setFocusKey(focused ? null : label)} title={label} className="flex min-w-0 flex-1 items-center gap-2 text-left">
                       <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: colorOf[label] }} />
                       <span className={cn("min-w-0 flex-1 truncate text-xs", focused ? "text-foreground" : "text-muted-foreground")}>{label}</span>
                     </button>
@@ -643,6 +662,11 @@ function AnalysisPane({
           {axisLabel}
           {axisSig.signal.unit !== "—" ? ` (${axisSig.signal.unit})` : ""}
         </span>
+      )}
+      {markPeaks && (
+        <div className="pointer-events-none absolute left-1/2 top-1 z-10 -translate-x-1/2 rounded-full bg-primary/15 px-2 py-0.5 text-center text-[10px] text-foreground">
+          Peak mode — click a line to mark its max · turn off “Mark peaks” to scrub the cursor
+        </div>
       )}
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={rows} margin={{ top: PLOT_TOP, right: RIGHT, left: 4, bottom: 4 }}>

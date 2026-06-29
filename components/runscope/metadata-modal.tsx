@@ -2,6 +2,7 @@
 
 import { X } from "lucide-react"
 import { FileMeta } from "./file-meta"
+import { VehicleCard } from "./vehicle-card"
 import type { ParsedLog } from "@/lib/csv"
 
 export function MetadataModal({
@@ -34,8 +35,18 @@ export function MetadataModal({
             <X className="size-4" />
           </button>
         </div>
-        <div className="overflow-y-auto p-5">
-          {log ? <FileMeta log={log} /> : <p className="text-sm text-muted-foreground">No log loaded.</p>}
+        <div className="flex flex-col gap-5 overflow-y-auto p-5">
+          {log ? (
+            <>
+              <VehicleCard log={log} />
+              <div className="border-t border-border pt-4">
+                <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">File metadata</h4>
+                <FileMeta log={log} />
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">No log loaded.</p>
+          )}
         </div>
       </div>
     </div>

@@ -553,6 +553,29 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
     { key: bindings.toggleGrid, description: "Toggle grid lines", handler: () => setDisplay((d) => ({ ...d, showGrid: !d.showGrid })) },
     { key: bindings.lockCompare, description: "Lock alignment (Compare)", handler: () => setCompareLocked((v) => !v) },
     {
+      key: bindings.quickSearch,
+      description: "Quick search (Signal Matrix)",
+      handler: () => {
+        if (comparing || view === "plot") return
+        setQuickOpen(true)
+        setTimeout(() => quickRef.current?.focus(), 0)
+      },
+    },
+    {
+      key: bindings.cycleFile,
+      description: "Cycle active / reference file",
+      handler: () => {
+        if (logs.length < 2) return
+        if (comparing) {
+          const cap = Math.min(logs.length, 3)
+          const idx = logs.findIndex((l) => l.fileName === activeCompareFile)
+          setActiveCompareFile(logs[(idx + 1) % cap]?.fileName ?? logs[0].fileName)
+        } else {
+          selectLog((activeIndex + 1) % logs.length)
+        }
+      },
+    },
+    {
       key: bindings.heightCycle,
       description: "Cycle chart height (Signal Matrix)",
       handler: () =>
@@ -673,6 +696,7 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
                 onReset={() => {
                   resetView(duration)
                   setCollapsed(new Set())
+                  setAnalysisTransforms({}) // also reset Analysis Plot line scaling
                 }}
                 onFit={() => {
                   setZoom(100)
