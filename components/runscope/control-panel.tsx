@@ -1,7 +1,7 @@
 "use client"
 
 import { useRef, useState, type ReactNode, type RefObject } from "react"
-import { Check, Crosshair, Download, Lock, LockOpen, Maximize2, Pencil, RefreshCw, RotateCcw, Save, Search, Upload, X } from "lucide-react"
+import { Check, Crosshair, Download, HelpCircle, Lock, LockOpen, Maximize2, Pencil, RefreshCw, RotateCcw, Save, Search, Upload, X } from "lucide-react"
 import { Toggle } from "./toggle"
 import { cn } from "@/lib/utils"
 import type { Template } from "@/lib/templates"
@@ -360,8 +360,11 @@ export function ControlPanel(props: ControlPanelProps) {
       {/* 4 · Channels (scrolls) */}
       <div className="flex min-h-0 flex-1 flex-col gap-2">
         <div className="flex shrink-0 items-center justify-between">
-          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          <span className="flex items-center gap-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Channels <span className="text-muted-foreground/60">· {activeCount}/{channels.length}</span>
+            <span title="Click a channel name to jump to its plot" className="inline-flex">
+              <HelpCircle className="size-3 text-muted-foreground/60" aria-hidden />
+            </span>
           </span>
           <div className="flex items-center gap-1 text-[11px]">
             <button
@@ -411,7 +414,7 @@ export function ControlPanel(props: ControlPanelProps) {
                 <button
                   type="button"
                   onClick={() => onScrollToChannel(c.key)}
-                  title="Jump to this plot"
+                  title={c.label}
                   className="flex min-w-0 flex-1 items-center gap-2.5 py-1.5 text-left"
                 >
                   <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: c.color }} />

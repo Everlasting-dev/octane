@@ -1,6 +1,6 @@
 {
   "name": "octane-signal-matrix",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "description": "Octane — ECU telemetry log analyzer (Next.js + Electron).",
   "author": "AK Everlasting Dev",
@@ -39,12 +39,12 @@
       }
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
       "perMachine": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Octane"
+      "shortcutName": "Octane",
+      "runAfterFinish": true
     },
     "publish": [
       {

@@ -85,6 +85,68 @@ export async function persistTemplates(list: Template[]): Promise<void> {
   }
 }
 
+const SEED_FLAG = "octane:templates-seeded"
+
+// Starter templates seeded on first run. Channels are matched by label (unit
+// stripped), so they apply to any compatible EcuTek log; missing channels are
+// simply ignored.
+export const DEFAULT_TEMPLATES: Omit<Template, "id">[] = [
+  {
+    name: "General",
+    channels: [
+      "Engine Speed", "Vehicle Speed", "Accelerator Pedal Sensor #1", "Manifold Gauge Pressure",
+      "Boost Bank 1", "AFR B1", "Ignition Timing", "Coolant Temperature", "Gear",
+    ],
+  },
+  {
+    name: "Fuel",
+    channels: [
+      "AFR B1", "AFR B2", "AFR Target Final B1", "AFR Target Final B2",
+      "Fuel Trim Short Term Bank #1", "Fuel Trim Short Term Bank #2", "Injector Duty B1",
+      "Fuel Pressure (relative)", "FlexFuel Ethanol Content",
+    ],
+  },
+  {
+    name: "Ignition",
+    channels: [
+      "Ignition Timing", "Knock Correction", "Knock Sensor Cylinder 1", "Knock Sensor Cylinder 2",
+      "Knock Sensor Cylinder 3", "Knock Sensor Cylinder 4", "Knock Sensor Cylinder 5",
+      "Knock Sensor Cylinder 6", "Engine Speed", "Manifold Gauge Pressure",
+    ],
+  },
+  {
+    name: "Speed",
+    channels: [
+      "Vehicle Speed", "Wheel Speed FL", "Wheel Speed FR", "Wheel Speed RL", "Wheel Speed RR",
+      "Wheel Slip Ratio", "Gear", "Accelerator Pedal Sensor #1", "4WD Torque Split",
+    ],
+  },
+]
+
+/**
+ * First-run only: seed starter templates when the user has none and we've never
+ * seeded before (so deleting them all doesn't bring them back). Returns the list
+ * to display — the seeded set, or the existing templates unchanged.
+ */
+export async function ensureSeedTemplates(existing: Template[]): Promise<Template[]> {
+  if (typeof window === "undefined") return existing
+  let seeded = false
+  try {
+    seeded = window.localStorage.getItem(SEED_FLAG) === "1"
+  } catch {
+    /* ignore */
+  }
+  if (existing.length > 0 || seeded) return existing
+  const list: Template[] = DEFAULT_TEMPLATES.map((t, i) => ({ id: `seed-${i}-${t.name.toLowerCase()}`, ...t }))
+  await persistTemplates(list)
+  try {
+    window.localStorage.setItem(SEED_FLAG, "1")
+  } catch {
+    /* ignore */
+  }
+  return list
+}
+
 export function serializeTemplates(list: Template[]): string {
   return JSON.stringify({ app: "octane", kind: "templates", version: 1, templates: list }, null, 2)
 }

@@ -21,12 +21,14 @@ export function FileMeta({ log }: { log: ParsedLog }) {
         <MetaRow label="Size" value={log.sizeLabel} />
         <MetaRow label="Samples" value={log.samples.toLocaleString()} />
         <MetaRow label="Duration" value={`${log.duration.toFixed(1)}${log.indexed ? "" : "s"}`} />
-        {meta.vin && <MetaRow label="VIN" value={meta.vin} />}
+        {/* VIN intentionally omitted here — shown once (masked, with reveal) in the Vehicle card. */}
         {meta.calIds.length > 0 && <MetaRow label="Calibration / dongle IDs" value={meta.calIds.join(", ")} />}
         {meta.capturedAt && <MetaRow label="Captured" value={meta.capturedAt} />}
-        {meta.fields.map((f, i) => (
-          <MetaRow key={i} label={f.key || "Note"} value={f.value} />
-        ))}
+        {meta.fields
+          .filter((f) => !/vin/i.test(f.key))
+          .map((f, i) => (
+            <MetaRow key={i} label={f.key || "Note"} value={f.value} />
+          ))}
       </div>
       {empty && (
         <p className="mt-2 text-xs text-muted-foreground">No embedded calibration metadata found in this file.</p>

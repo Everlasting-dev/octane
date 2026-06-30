@@ -39,6 +39,10 @@ interface CombinedChartProps {
   setFocusKey: Dispatch<SetStateAction<string | null>>
   markPeaks: boolean
   setMarkPeaks: Dispatch<SetStateAction<boolean>>
+  split: boolean
+  setSplit: Dispatch<SetStateAction<boolean>>
+  plotAssign: Record<string, 0 | 1>
+  setPlotAssign: Dispatch<SetStateAction<Record<string, 0 | 1>>>
   modalOpen: boolean
   onCursorChange: (t: number | null) => void
   onAddAnnotation: (t: number, channel: string) => void
@@ -92,6 +96,10 @@ function CombinedChartImpl({
   setFocusKey,
   markPeaks,
   setMarkPeaks,
+  split,
+  setSplit,
+  plotAssign,
+  setPlotAssign,
   modalOpen,
   onCursorChange,
   onAddAnnotation,
@@ -99,9 +107,11 @@ function CombinedChartImpl({
   const [highlightKey, setHighlightKey] = useState<string | null>(null)
   const [dockOpen, setDockOpen] = useState(true)
   const [fullscreen, setFullscreen] = useState(false)
-  const [split, setSplit] = useState(false)
-  const [plotAssign, setPlotAssign] = useState<Record<string, 0 | 1>>({})
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  // Plot quick-search ("/"): filter the dock; Enter focuses the match, then it hides.
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState("")
+  const searchRef = useRef<HTMLInputElement>(null)
   const bindings = useBindings()
 
   const labels = series.map((s) => s.signal.label)
@@ -170,6 +180,8 @@ function CombinedChartImpl({
       for (const l of targets) next[l] = dest
       return next
     })
+    // Clear the multi-selection once moved — the gesture is complete.
+    setSelected(new Set())
   }
 
   // Windowed peak of the highlighted line.
@@ -233,6 +245,11 @@ function CombinedChartImpl({
       } else if (matchesKey(e, bindings.fullscreen)) {
         e.preventDefault()
         setFullscreen((v) => !v)
+      } else if (matchesKey(e, bindings.quickSearch)) {
+        e.preventDefault()
+        setSearchOpen(true)
+        setDockOpen(true)
+        setTimeout(() => searchRef.current?.focus(), 0)
       } else if (e.key === "Escape") {
         if (modalOpen) return // a dialog is open — let the dashboard close it first
         if (fullscreen) setFullscreen(false)
@@ -260,8 +277,23 @@ function CombinedChartImpl({
     if (focusKey && paneSeries.some((s) => s.signal.label === focusKey)) return focusKey
     return paneSeries[0]?.signal.label ?? null
   }
-  const paneHeight = (count: number) =>
-    fullscreen ? "min-h-0 flex-1" : count === 1 ? "h-[26rem]" : "h-[13rem]"
+  // Panes always fill available height (windowed too) so the plot isn't a tiny
+  // strip on a big screen; split simply halves the space. Min keeps it usable small.
+  const paneHeight = (count: number) => cn("min-h-0 flex-1", count === 1 ? "min-h-[16rem]" : "min-h-[11rem]")
+
+  // Plot quick-search: filter the dock list; matches feed Enter (focus + hide).
+  const q = query.trim().toLowerCase()
+  const dockMatches = q ? series.filter((s) => s.signal.label.toLowerCase().includes(q)) : []
+  const dockSeries = searchOpen && q ? dockMatches : series
+  function closeSearch() {
+    setSearchOpen(false)
+    setQuery("")
+  }
+  function focusMatch() {
+    const first = dockMatches[0]?.signal.label
+    if (first) setFocusKey(first)
+    closeSearch() // search disappears while the line stays highlighted
+  }
 
   return (
     <section
@@ -269,7 +301,7 @@ function CombinedChartImpl({
         "overflow-hidden border border-border",
         fullscreen
           ? "fixed inset-0 z-50 flex flex-col rounded-none bg-background/90 backdrop-blur-2xl"
-          : "rounded-xl bg-card/60",
+          : "flex min-h-0 flex-1 flex-col rounded-xl bg-card/60",
       )}
     >
       <header className="flex items-center justify-between gap-3 px-4 py-3">
@@ -322,7 +354,7 @@ function CombinedChartImpl({
         </div>
       </header>
 
-      <div className={cn("flex border-t border-border", fullscreen && "min-h-0 flex-1")}>
+      <div className="flex min-h-0 flex-1 border-t border-border">
         <div className="flex min-w-0 flex-1 flex-col">
           {panes.map((paneSeries, p) => (
             <AnalysisPane
@@ -380,8 +412,29 @@ function CombinedChartImpl({
                 </button>
               </div>
             </div>
+            {searchOpen && (
+              <div className="border-b border-border px-2 py-1.5">
+                <input
+                  ref={searchRef}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      focusMatch()
+                    } else if (e.key === "Escape") {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      closeSearch()
+                    }
+                  }}
+                  placeholder="Search channels… ↵ to highlight"
+                  className="h-7 w-full rounded-md border border-border bg-card px-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
+                />
+              </div>
+            )}
             <ul className="flex-1 overflow-y-auto py-1">
-              {series.map((s) => {
+              {dockSeries.map((s) => {
                 const label = s.signal.label
                 const focused = focusKey === label
                 const isSel = selected.has(label)
@@ -533,6 +586,17 @@ function AnalysisPane({
     })
     return { rows: [...map.values()].sort((a, b) => (a.t as number) - (b.t as number)), keys: paneSeries.map((_, i) => `k${i}`) }
   }, [paneSeries])
+
+  // Re-render on pane resize so the cursor/peak overlays (positioned from the
+  // measured height) stay correct as the window or split layout changes.
+  const [, forceTick] = useState(0)
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el || typeof ResizeObserver === "undefined") return
+    const ro = new ResizeObserver(() => forceTick((n) => n + 1))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   // Shift+scroll → scale targeted lines (non-passive listener).
   useEffect(() => {

@@ -22,24 +22,26 @@ export type ActionId =
   | "viewPlot"
   | "viewCompare"
 
-export const ACTIONS: { id: ActionId; label: string; scope: "plot" | "global" }[] = [
-  { id: "focusNext", label: "Focus next line (Analysis Plot)", scope: "plot" },
-  { id: "focusPrev", label: "Focus previous line (Analysis Plot)", scope: "plot" },
-  { id: "selectLine", label: "Select / deselect focused line", scope: "plot" },
-  { id: "movePlot", label: "Send focused line to the other plot", scope: "plot" },
-  { id: "peakToggle", label: "Toggle peak markers", scope: "plot" },
-  { id: "fullscreen", label: "Fullscreen the plot", scope: "plot" },
-  { id: "quickSearch", label: "Quick search (Signal Matrix)", scope: "global" },
-  { id: "cycleFile", label: "Cycle active / reference file", scope: "global" },
-  { id: "toggleGrid", label: "Toggle grid lines", scope: "global" },
-  { id: "lockCompare", label: "Lock alignment (Compare)", scope: "global" },
-  { id: "heightCycle", label: "Cycle chart height (Signal Matrix)", scope: "global" },
-  { id: "sync", label: "Toggle sync", scope: "global" },
-  { id: "annotate", label: "Toggle annotate", scope: "global" },
-  { id: "reset", label: "Reset view", scope: "global" },
-  { id: "viewMatrix", label: "View: Signal Matrix", scope: "global" },
-  { id: "viewPlot", label: "View: Analysis Plot", scope: "global" },
-  { id: "viewCompare", label: "View: Compare", scope: "global" },
+export type ActionContext = "plot" | "matrix" | "compare" | "global"
+
+export const ACTIONS: { id: ActionId; label: string; context: ActionContext }[] = [
+  { id: "focusNext", label: "Focus next line", context: "plot" },
+  { id: "focusPrev", label: "Focus previous line", context: "plot" },
+  { id: "selectLine", label: "Select / deselect focused line", context: "plot" },
+  { id: "movePlot", label: "Send focused line to the other plot", context: "plot" },
+  { id: "peakToggle", label: "Toggle peak markers", context: "plot" },
+  { id: "fullscreen", label: "Fullscreen the plot", context: "plot" },
+  { id: "heightCycle", label: "Cycle chart height", context: "matrix" },
+  { id: "lockCompare", label: "Lock alignment", context: "compare" },
+  { id: "quickSearch", label: "Quick search (Matrix & Plot)", context: "global" },
+  { id: "cycleFile", label: "Cycle active / reference file", context: "global" },
+  { id: "toggleGrid", label: "Toggle grid lines", context: "global" },
+  { id: "sync", label: "Toggle sync", context: "global" },
+  { id: "annotate", label: "Toggle annotate", context: "global" },
+  { id: "reset", label: "Reset view", context: "global" },
+  { id: "viewMatrix", label: "View: Signal Matrix", context: "global" },
+  { id: "viewPlot", label: "View: Analysis Plot", context: "global" },
+  { id: "viewCompare", label: "View: Compare", context: "global" },
 ]
 
 export type Bindings = Record<ActionId, string>

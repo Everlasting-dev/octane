@@ -1,7 +1,7 @@
 "use client"
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
-import { Download, Search, TriangleAlert, Upload, X } from "lucide-react"
+import { Download, Keyboard, Search, TriangleAlert, Upload, X } from "lucide-react"
 import { type SignalKey } from "@/lib/telemetry"
 import { parseLogFile, type ParsedLog } from "@/lib/csv"
 import { SAMPLE_LOG } from "@/lib/sample"
@@ -17,6 +17,7 @@ import {
 } from "@/lib/annotations"
 import {
   loadTemplates,
+  ensureSeedTemplates,
   persistTemplates,
   serializeTemplates,
   parseImportedTemplates,
@@ -38,6 +39,7 @@ import { UploadZone } from "./upload-zone"
 import { AboutModal } from "./about-modal"
 import { SettingsModal } from "./settings-modal"
 import { MetadataModal } from "./metadata-modal"
+import { ShortcutsModal } from "./shortcuts-modal"
 import { AnnotationDialog, type AnnotationDraft } from "./annotation-dialog"
 import { cn } from "@/lib/utils"
 
@@ -126,13 +128,23 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
   const sessionsRef = useRef<Map<string, Session>>(new Map())
   const [templates, setTemplates] = useState<Template[]>([])
   useEffect(() => {
-    loadTemplates().then(setTemplates)
+    loadTemplates().then(ensureSeedTemplates).then(setTemplates)
+  }, [])
+
+  // On tall/hi-res displays, start the Signal Matrix at a taller chart tier so
+  // plots aren't a thin strip (still adjustable with the height hotkey).
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerHeight >= 1200) {
+      setDisplay((d) => ({ ...d, height: "tall" }))
+    }
   }, [])
 
   // Analysis Plot state (persisted across view switches).
   const [analysisTransforms, setAnalysisTransforms] = useState<Record<string, Transform>>({})
   const [analysisFocus, setAnalysisFocus] = useState<string | null>(null)
   const [analysisMarkPeaks, setAnalysisMarkPeaks] = useState(false)
+  const [analysisSplit, setAnalysisSplit] = useState(false)
+  const [analysisPlotAssign, setAnalysisPlotAssign] = useState<Record<string, 0 | 1>>({})
 
   // Compare workspace state.
   const [compareAreas, setCompareAreas] = useState<string[][]>([[], [], []])
@@ -143,10 +155,12 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [annotationDraft, setAnnotationDraft] = useState<AnnotationDraft | null>(null)
   const [showAbout, setShowAbout] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showMetadata, setShowMetadata] = useState(false)
   const [quickOpen, setQuickOpen] = useState(false)
   const [matrixQuery, setMatrixQuery] = useState("")
+  const [highlightChannel, setHighlightChannel] = useState<SignalKey | null>(null)
   const quickRef = useRef<HTMLInputElement>(null)
 
   const searchRef = useRef<HTMLInputElement>(null)
@@ -170,16 +184,18 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
     if (!logs.length) return []
     if (!comparing) {
       const log = logs[activeIndex] ?? logs[0]
-      return log.signals.map((sig) => ({
-        key: sig.key,
-        label: sig.label,
-        unit: sig.unit,
-        decimals: sig.decimals,
-        series: [
-          { id: `${activeIndex}-${sig.key}`, name: log.fileName, color: `var(--chart-${sig.color})`, signal: sig },
-        ],
-        diffStats: null,
-      }))
+      return log.signals
+        .map((sig) => ({
+          key: sig.key,
+          label: sig.label,
+          unit: sig.unit,
+          decimals: sig.decimals,
+          series: [
+            { id: `${activeIndex}-${sig.key}`, name: log.fileName, color: `var(--chart-${sig.color})`, signal: sig },
+          ],
+          diffStats: null,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)) // alphabetical (matches Compare view)
     }
     const labelMaps = logs.map((l) => new Map(l.signals.map((s) => [s.label, s])))
     const common = [...labelMaps[0].keys()].filter((lab) => labelMaps.every((m) => m.has(lab)))
@@ -529,6 +545,9 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
     const q = matrixQuery.trim().toLowerCase()
     return q ? channels.filter((c) => c.label.toLowerCase().includes(q)) : visibleChannels
   }, [matrixQuery, channels, visibleChannels])
+  // The chart to ring: the persisted post-search target, else the live first match.
+  const matrixHighlight: SignalKey | null =
+    highlightChannel ?? (quickOpen && matrixQuery.trim() ? matrixChannels[0]?.key ?? null : null)
   const activeCount = visibleChannels.length
 
   const kpis = useMemo(
@@ -540,6 +559,24 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
     () => visibleChannels.slice(0, 3).map((c) => ({ color: c.series[0].color, data: c.series[0].signal.data })),
     [visibleChannels],
   )
+
+  // Matrix quick-search: land on the first matching channel — reveal it if hidden,
+  // scroll its plot into view and flash a highlight — instead of resetting the list.
+  function landOnChannel() {
+    const target = matrixChannels[0]
+    setMatrixQuery("")
+    setQuickOpen(false)
+    if (!target) return
+    setHidden((prev) => {
+      if (!prev.has(target.key)) return prev
+      const n = new Set(prev)
+      n.delete(target.key)
+      return n
+    })
+    setHighlightChannel(target.key)
+    setTimeout(() => document.getElementById(`chart-${target.key}`)?.scrollIntoView({ block: "center", behavior: "smooth" }), 60)
+    setTimeout(() => setHighlightChannel(null), 1800)
+  }
 
   const shortcuts: Shortcut[] = [
     { key: "o", ctrl: true, description: "Open log", handler: () => openCsvDialog(loadFile) },
@@ -585,21 +622,19 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
         }),
     },
     { key: "Home", description: "Scroll to top", handler: () => mainRef.current?.scrollTo({ top: 0, behavior: "smooth" }) },
-    { key: "?", shift: true, description: "About Octane", handler: () => setShowAbout((v) => !v) },
+    { key: "?", shift: true, description: "Toggle keyboard shortcuts", handler: () => setShowShortcuts((v) => !v) },
     {
       key: "Escape",
       description: "Close dialogs / exit annotate",
       // Priority: close the top-most thing only. The Analysis Plot handles its own
       // Escape (fullscreen → focus) when no modal/draft is open.
       handler: () => {
-        if (showAbout) setShowAbout(false)
+        if (showShortcuts) setShowShortcuts(false)
+        else if (showAbout) setShowAbout(false)
         else if (showSettings) setShowSettings(false)
         else if (annotationDraft) setAnnotationDraft(null)
         else if (annotate) setAnnotate(false)
-        else if (quickOpen) {
-          setMatrixQuery("")
-          setQuickOpen(false)
-        }
+        else if (quickOpen) landOnChannel()
       },
     },
   ]
@@ -637,6 +672,15 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
             )}
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowShortcuts(true)}
+              title="Keyboard shortcuts (?)"
+              aria-label="Keyboard shortcuts"
+              className="inline-flex size-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            >
+              <Keyboard className="size-4" />
+            </button>
             <button
               type="button"
               onClick={() => openCsvDialog(loadFile)}
@@ -697,6 +741,8 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
                   resetView(duration)
                   setCollapsed(new Set())
                   setAnalysisTransforms({}) // also reset Analysis Plot line scaling
+                  setAnalysisSplit(false)
+                  setAnalysisPlotAssign({})
                 }}
                 onFit={() => {
                   setZoom(100)
@@ -735,7 +781,7 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
 
             {/* Main content */}
             <div className="flex min-w-0 flex-1 flex-col">
-              <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+              <main ref={mainRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-5">
                 {kpis.length > 0 && <KpiCards kpis={kpis} />}
 
                 {logs.length > 1 && (
@@ -766,12 +812,13 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
                             value={matrixQuery}
                             onChange={(e) => setMatrixQuery(e.target.value)}
                             onKeyDown={(e) => {
-                              if (e.key === "Escape") {
-                                setMatrixQuery("")
-                                setQuickOpen(false)
+                              if (e.key === "Enter" || e.key === "Escape") {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                landOnChannel() // stay on the matched channel's plot
                               }
                             }}
-                            placeholder="Quick search — show a plot…"
+                            placeholder="Quick search — ↵ jumps to the plot…"
                             className="h-8 w-full rounded-md border border-border bg-card pl-8 pr-8 text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30"
                           />
                           <button
@@ -832,7 +879,7 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
                       No channels selected. Enable some from the panel on the left.
                     </div>
                   ) : (
-                  <div className="pb-4">
+                  <div className="flex min-h-0 flex-1 flex-col pb-4">
                     <CombinedChart
                       series={visibleChannels.map((c) => c.series[0])}
                       domain={domain}
@@ -848,7 +895,11 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
                       setFocusKey={setAnalysisFocus}
                       markPeaks={analysisMarkPeaks}
                       setMarkPeaks={setAnalysisMarkPeaks}
-                      modalOpen={showAbout || showSettings || annotationDraft != null}
+                      split={analysisSplit}
+                      setSplit={setAnalysisSplit}
+                      plotAssign={analysisPlotAssign}
+                      setPlotAssign={setAnalysisPlotAssign}
+                      modalOpen={showAbout || showShortcuts || showSettings || annotationDraft != null}
                       onCursorChange={setCursorT}
                       onAddAnnotation={openAnnotation}
                     />
@@ -861,8 +912,14 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
                 ) : (
                   <div className="flex flex-col gap-4 pb-4">
                     {matrixChannels.map((c) => (
-                      <SignalChart
+                      <div
                         key={c.key}
+                        className={cn(
+                          "rounded-xl transition-shadow",
+                          matrixHighlight === c.key && "ring-2 ring-primary ring-offset-2 ring-offset-background",
+                        )}
+                      >
+                      <SignalChart
                         channelKey={c.key}
                         domId={`chart-${c.key}`}
                         label={c.label}
@@ -882,6 +939,7 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
                         onCursorChange={setCursorT}
                         onAddAnnotation={openAnnotation}
                       />
+                      </div>
                     ))}
                   </div>
                 )}
@@ -893,6 +951,7 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
       </div>
 
       <AboutModal open={showAbout} onClose={() => setShowAbout(false)} />
+      <ShortcutsModal open={showShortcuts} view={view} onClose={() => setShowShortcuts(false)} />
       <SettingsModal
         open={showSettings}
         settings={display}

@@ -3,7 +3,7 @@
 // server, then loads it in a BrowserWindow. This avoids file:// asset-path
 // breakage from Next's absolute /_next/ references and works fully offline.
 
-const { app, BrowserWindow, Menu, shell, ipcMain, dialog } = require("electron")
+const { app, BrowserWindow, Menu, shell, ipcMain, dialog, screen } = require("electron")
 const path = require("node:path")
 const fs = require("node:fs")
 const { startServer } = require("./static-server.cjs")
@@ -151,11 +151,17 @@ function buildMenu(win) {
 }
 
 async function createWindow() {
+  // Size to the actual display so the app isn't a tiny window on a 4K screen.
+  const { width: areaW, height: areaH } = screen.getPrimaryDisplay().workAreaSize
+  const winW = Math.max(880, Math.min(1920, Math.round(areaW * 0.85)))
+  const winH = Math.max(600, Math.min(1200, Math.round(areaH * 0.85)))
+
   const win = new BrowserWindow({
-    width: 1280,
-    height: 860,
+    width: winW,
+    height: winH,
     minWidth: 880,
     minHeight: 600,
+    center: true,
     backgroundColor: "#0a0a0a",
     title: "Octane",
     show: false,
@@ -167,6 +173,9 @@ async function createWindow() {
       devTools: false, // production app — no devtools / F12 / Ctrl+Shift+I
     },
   })
+
+  // On large/hi-res displays, start maximized so the plots get real estate.
+  if (areaH >= 1400) win.maximize()
 
   buildMenu(win)
 
