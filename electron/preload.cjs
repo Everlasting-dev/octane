@@ -17,5 +17,11 @@ contextBridge.exposeInMainWorld("octane", {
   },
   updates: {
     check: () => ipcRenderer.invoke("updates:check"),
+    install: () => ipcRenderer.invoke("updates:install"),
+    onStatus: (callback) => {
+      const listener = (_event, status) => callback(status)
+      ipcRenderer.on("updates:status", listener)
+      return () => ipcRenderer.removeListener("updates:status", listener)
+    },
   },
 })

@@ -1,5 +1,7 @@
 // App version + update-check, via the Octane desktop bridge (window.octane).
 
+import { checkForUpdates as checkForAppUpdates } from "@/lib/updates"
+
 function appBridge() {
   if (typeof window === "undefined") return null
   return (
@@ -26,14 +28,7 @@ export async function getAppVersion(): Promise<string> {
 }
 
 export async function checkForUpdates(): Promise<void> {
-  const b = appBridge()
-  if (b?.updates?.check) {
-    try {
-      await b.updates.check()
-    } catch {
-      /* ignore */
-    }
-  }
+  await checkForAppUpdates()
 }
 
 export const GITHUB_URL = "https://github.com/Everlasting-dev/octane"

@@ -15,7 +15,6 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
   }
 
   componentDidCatch(error: Error) {
-    // eslint-disable-next-line no-console
     console.error("[octane] render error:", error)
   }
 
