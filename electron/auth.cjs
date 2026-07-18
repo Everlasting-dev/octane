@@ -6,8 +6,8 @@ const { app, safeStorage } = require("electron")
 const fs = require("node:fs/promises")
 const path = require("node:path")
 
-const SUPABASE_URL = process.env.SUPABASE_URL || "https://decufenfrltxeczmeioa.supabase.co"
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "sb_publishable_hzR5hVRvyjQnyhHEl9-ZyQ_XBToPuF8"
+const SUPABASE_URL = process.env.SUPABASE_URL || "https://hgwmdowavadfbctlypin.supabase.co"
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "sb_publishable_wRhD8AZtNhOAXSv3k_f7Cg_5rzE11zp"
 const AUTH_GRACE_MS = 7 * 24 * 60 * 60 * 1000 // 7 days offline grace
 
 function sessionPath() {
