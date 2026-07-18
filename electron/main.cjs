@@ -1,9 +1,8 @@
-// Octane — Electron desktop shell.
-// Serves the static Next.js export (../out) from an in-process localhost
-// server, then loads it in a BrowserWindow. This avoids file:// asset-path
-// breakage from Next's absolute /_next/ references and works fully offline.
+// Octane Electron desktop shell.
+// Serves the static Next.js export from an in-process localhost server, then
+// loads it in a BrowserWindow so Next's absolute asset paths work offline.
 
-const { app, BrowserWindow, Menu, shell, ipcMain, dialog, screen } = require("electron")
+const { app, BrowserWindow, Menu, shell, ipcMain, screen } = require("electron")
 const path = require("node:path")
 const fs = require("node:fs")
 const { startServer } = require("./static-server.cjs")
@@ -11,15 +10,18 @@ const auth = require("./auth.cjs")
 
 const OUT_DIR = path.join(__dirname, "..", "out")
 const PRELOAD = path.join(__dirname, "preload.cjs")
-// Stable port → stable origin → localStorage (annotations, etc.) survives restarts.
 const PORT = 43117
 const isDev = !app.isPackaged && process.env.OCTANE_DEV_URL
+let updater = null
+let updaterListenersBound = false
+let installWhenDownloaded = false
+
+app.setName("Octane")
 
 function templatesFile() {
   return path.join(app.getPath("userData"), "templates", "templates.json")
 }
 
-// File-backed templates (a real folder the user can back up / transfer).
 ipcMain.handle("templates:load", () => {
   try {
     return fs.readFileSync(templatesFile(), "utf8")
@@ -37,7 +39,6 @@ ipcMain.handle("templates:save", (_e, json) => {
   }
 })
 
-// Supabase auth (login screen).
 ipcMain.handle("auth:get-state", async () => {
   try {
     return await auth.getState()
@@ -60,48 +61,116 @@ ipcMain.handle("updates:check", () => {
   checkForUpdates()
   return true
 })
+ipcMain.handle("updates:install", () => {
+  installUpdate()
+  return true
+})
 
-// Encourage GPU-accelerated rasterization/compositing for smoother scrolling.
 app.commandLine.appendSwitch("ignore-gpu-blocklist")
 app.commandLine.appendSwitch("enable-gpu-rasterization")
 app.commandLine.appendSwitch("enable-zero-copy")
 app.commandLine.appendSwitch("enable-accelerated-2d-canvas")
 
-// Manual "Check for Updates" with dialog feedback.
-function checkForUpdates() {
-  if (!app.isPackaged) {
-    dialog.showMessageBox({ type: "info", message: "Updates are only available in the installed app.", buttons: ["OK"] })
-    return
-  }
-  try {
-    const { autoUpdater } = require("electron-updater")
-    autoUpdater.removeAllListeners()
-    autoUpdater.once("update-available", (info) =>
-      dialog.showMessageBox({ type: "info", message: `Update ${info?.version ?? ""} available — downloading…`, buttons: ["OK"] }),
-    )
-    autoUpdater.once("update-not-available", () =>
-      dialog.showMessageBox({ type: "info", message: "Octane is up to date.", buttons: ["OK"] }),
-    )
-    autoUpdater.once("error", (err) =>
-      dialog.showMessageBox({ type: "error", message: `Update check failed: ${err?.message ?? err}`, buttons: ["OK"] }),
-    )
-    autoUpdater.once("update-downloaded", () =>
-      dialog
-        .showMessageBox({ type: "question", message: "Update downloaded. Restart Octane to install?", buttons: ["Restart", "Later"], defaultId: 0 })
-        .then((r) => {
-          if (r.response === 0) autoUpdater.quitAndInstall()
-        }),
-    )
-    autoUpdater.checkForUpdates().catch((e) =>
-      dialog.showMessageBox({ type: "error", message: `Update check failed: ${e?.message ?? e}`, buttons: ["OK"] }),
-    )
-  } catch (e) {
-    dialog.showMessageBox({ type: "error", message: `Updater unavailable: ${e?.message ?? e}`, buttons: ["OK"] })
+function sendUpdateStatus(status) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+      win.webContents.send("updates:status", status)
+    }
   }
 }
 
-// Run code in the renderer, guarded against a disposed frame (avoids
-// "Render frame was disposed before WebFrameMain could be accessed").
+function getUpdater() {
+  if (updater) return updater
+
+  const { autoUpdater } = require("electron-updater")
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = false
+  updater = autoUpdater
+
+  if (!updaterListenersBound) {
+    updaterListenersBound = true
+
+    autoUpdater.on("checking-for-update", () => {
+      sendUpdateStatus({ phase: "checking", message: "Checking GitHub releases..." })
+    })
+
+    autoUpdater.on("update-available", (info) => {
+      sendUpdateStatus({
+        phase: "available",
+        version: info?.version,
+        message: `Octane ${info?.version ?? ""} is available.`,
+      })
+      autoUpdater.downloadUpdate().catch((error) => {
+        sendUpdateStatus({ phase: "error", message: error?.message ?? String(error) })
+      })
+    })
+
+    autoUpdater.on("update-not-available", () => {
+      sendUpdateStatus({ phase: "not-available", message: "Octane is up to date." })
+    })
+
+    autoUpdater.on("download-progress", (progress) => {
+      sendUpdateStatus({
+        phase: "downloading",
+        percent: Math.max(0, Math.min(100, progress?.percent ?? 0)),
+        transferred: progress?.transferred ?? 0,
+        total: progress?.total ?? 0,
+        bytesPerSecond: progress?.bytesPerSecond ?? 0,
+        message: "Downloading update...",
+      })
+    })
+
+    autoUpdater.on("update-downloaded", (info) => {
+      sendUpdateStatus({
+        phase: installWhenDownloaded ? "installing" : "ready",
+        version: info?.version,
+        percent: 100,
+        message: installWhenDownloaded ? "Download complete. Restarting Octane..." : "Download complete.",
+      })
+
+      if (installWhenDownloaded) {
+        setTimeout(() => installUpdate(), 900)
+      }
+    })
+
+    autoUpdater.on("error", (error) => {
+      sendUpdateStatus({ phase: "error", message: error?.message ?? String(error) })
+    })
+  }
+
+  return updater
+}
+
+function installUpdate() {
+  try {
+    const autoUpdater = getUpdater()
+    sendUpdateStatus({
+      phase: "installing",
+      percent: 100,
+      message: "Closing Octane and launching the installer...",
+    })
+    autoUpdater.quitAndInstall(false, true)
+  } catch (error) {
+    sendUpdateStatus({ phase: "error", message: error?.message ?? String(error) })
+  }
+}
+
+function checkForUpdates() {
+  if (!app.isPackaged) {
+    sendUpdateStatus({ phase: "not-available", message: "Updates are only available in the installed app." })
+    return
+  }
+
+  try {
+    installWhenDownloaded = true
+    getUpdater().checkForUpdates().catch((error) => {
+      sendUpdateStatus({ phase: "error", message: error?.message ?? String(error) })
+    })
+  } catch (e) {
+    sendUpdateStatus({ phase: "error", message: `Updater unavailable: ${e?.message ?? e}` })
+  }
+}
+
 function runInRenderer(win, code) {
   try {
     if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
@@ -118,7 +187,7 @@ function buildMenu(win) {
       label: "File",
       submenu: [
         {
-          label: "Open log…",
+          label: "Open log...",
           accelerator: "CmdOrCtrl+O",
           click: () => runInRenderer(win, "window.__octaneOpenLog && window.__octaneOpenLog()"),
         },
@@ -139,7 +208,10 @@ function buildMenu(win) {
     {
       label: "Help",
       submenu: [
-        { label: "Check for Updates…", click: () => checkForUpdates() },
+        {
+          label: "Check for Updates...",
+          click: () => runInRenderer(win, "window.__octaneCheckUpdates && window.__octaneCheckUpdates()"),
+        },
         {
           label: "About Octane",
           click: () => runInRenderer(win, "window.__octaneOpenAbout && window.__octaneOpenAbout()"),
@@ -151,7 +223,6 @@ function buildMenu(win) {
 }
 
 async function createWindow() {
-  // Size to the actual display so the app isn't a tiny window on a 4K screen.
   const { width: areaW, height: areaH } = screen.getPrimaryDisplay().workAreaSize
   const winW = Math.max(880, Math.min(1920, Math.round(areaW * 0.85)))
   const winH = Math.max(600, Math.min(1200, Math.round(areaH * 0.85)))
@@ -170,16 +241,14 @@ async function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      devTools: false, // production app — no devtools / F12 / Ctrl+Shift+I
+      devTools: false,
     },
   })
 
-  // On large/hi-res displays, start maximized so the plots get real estate.
   if (areaH >= 1400) win.maximize()
 
   buildMenu(win)
 
-  // Open external links in the system browser, not a new Electron window.
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: "deny" }
@@ -187,7 +256,6 @@ async function createWindow() {
 
   win.once("ready-to-show", () => win.show())
 
-  // Self-terminating launch check (CI / smoke test): load, confirm, exit.
   if (process.env.OCTANE_SMOKE) {
     win.webContents.once("did-finish-load", () => {
       console.log("[smoke] window loaded OK")
@@ -212,15 +280,6 @@ async function createWindow() {
 
 app.whenReady().then(() => {
   createWindow()
-  // Auto-update existing installs from the published GitHub releases.
-  if (app.isPackaged) {
-    try {
-      const { autoUpdater } = require("electron-updater")
-      autoUpdater.checkForUpdatesAndNotify().catch(() => {})
-    } catch {
-      /* updater unavailable */
-    }
-  }
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

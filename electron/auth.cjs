@@ -56,7 +56,8 @@ async function supabaseAuthRequest(pathname, options = {}) {
       headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json", ...(options.headers || {}) },
     })
   } catch (error) {
-    throw new Error(`Cannot reach Supabase at ${SUPABASE_URL}. Check your connection. Details: ${error.message}`)
+    const details = error instanceof Error ? error.message : String(error)
+    throw new Error(`Cannot reach Supabase at ${SUPABASE_URL}. Check your connection. Details: ${details}`, { cause: error })
   }
   const text = await response.text()
   let data = null
