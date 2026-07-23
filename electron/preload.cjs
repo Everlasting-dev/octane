@@ -24,4 +24,13 @@ contextBridge.exposeInMainWorld("octane", {
       return () => ipcRenderer.removeListener("updates:status", listener)
     },
   },
+  files: {
+    getPendingOpen: () => ipcRenderer.invoke("files:get-pending-open"),
+    ackOpen: (id) => ipcRenderer.invoke("files:ack-open", id),
+    onOpenLog: (callback) => {
+      const listener = (_event, payload) => callback(payload)
+      ipcRenderer.on("files:open-log", listener)
+      return () => ipcRenderer.removeListener("files:open-log", listener)
+    },
+  },
 })

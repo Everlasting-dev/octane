@@ -12,11 +12,79 @@ const OUT_DIR = path.join(__dirname, "..", "out")
 const PRELOAD = path.join(__dirname, "preload.cjs")
 const PORT = 43117
 const isDev = !app.isPackaged && process.env.OCTANE_DEV_URL
+const LOG_FILE_EXTENSIONS = new Set([".csv", ".txt"])
 let updater = null
 let updaterListenersBound = false
 let installWhenDownloaded = false
+let pendingOpenFile = null
+let mainWindow = null
 
 app.setName("Octane")
+
+function isLogFilePath(candidate) {
+  if (typeof candidate !== "string" || candidate.startsWith("-")) return false
+  const ext = path.extname(candidate).toLowerCase()
+  if (!LOG_FILE_EXTENSIONS.has(ext)) return false
+  try {
+    return fs.existsSync(candidate) && fs.statSync(candidate).isFile()
+  } catch {
+    return false
+  }
+}
+
+function findLogFileArg(argv) {
+  return argv.find(isLogFilePath) ?? null
+}
+
+function makeOpenFilePayload(filePath) {
+  const resolved = path.resolve(filePath)
+  const stat = fs.statSync(resolved)
+  if (!stat.isFile()) throw new Error("Path is not a file.")
+  if (!LOG_FILE_EXTENSIONS.has(path.extname(resolved).toLowerCase())) {
+    throw new Error("Only CSV and TXT logs can be opened directly.")
+  }
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    path: resolved,
+    fileName: path.basename(resolved),
+    size: stat.size,
+    text: fs.readFileSync(resolved, "utf8"),
+  }
+}
+
+function sendOpenFile(win, payload = pendingOpenFile) {
+  if (!payload || !win || win.isDestroyed() || win.webContents.isDestroyed()) return
+  win.webContents.send("files:open-log", payload)
+}
+
+function queueOpenFile(filePath) {
+  try {
+    pendingOpenFile = makeOpenFilePayload(filePath)
+  } catch (error) {
+    pendingOpenFile = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      path: filePath,
+      fileName: path.basename(filePath),
+      error: error?.message ?? String(error),
+    }
+  }
+
+  for (const win of BrowserWindow.getAllWindows()) sendOpenFile(win)
+}
+
+function focusMainWindow() {
+  const win = mainWindow
+  if (!win || win.isDestroyed()) return
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+}
+
+const initialLogFileArg = findLogFileArg(process.argv)
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+}
 
 function templatesFile() {
   return path.join(app.getPath("userData"), "templates", "templates.json")
@@ -63,6 +131,11 @@ ipcMain.handle("updates:check", () => {
 })
 ipcMain.handle("updates:install", () => {
   installUpdate()
+  return true
+})
+ipcMain.handle("files:get-pending-open", () => pendingOpenFile)
+ipcMain.handle("files:ack-open", (_e, id) => {
+  if (pendingOpenFile?.id === id) pendingOpenFile = null
   return true
 })
 
@@ -244,6 +317,10 @@ async function createWindow() {
       devTools: false,
     },
   })
+  mainWindow = win
+  win.on("closed", () => {
+    if (mainWindow === win) mainWindow = null
+  })
 
   if (areaH >= 1400) win.maximize()
 
@@ -275,15 +352,32 @@ async function createWindow() {
     await win.loadURL(`http://127.0.0.1:${port}/`)
   }
 
+  sendOpenFile(win)
   return win
 }
 
-app.whenReady().then(() => {
-  createWindow()
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+if (gotSingleInstanceLock) {
+  app.on("second-instance", (_event, argv) => {
+    const filePath = findLogFileArg(argv)
+    if (filePath) queueOpenFile(filePath)
+    focusMainWindow()
   })
-})
+
+  app.on("open-file", (event, filePath) => {
+    event.preventDefault()
+    if (isLogFilePath(filePath)) queueOpenFile(filePath)
+    focusMainWindow()
+  })
+
+  app.whenReady().then(() => {
+    if (initialLogFileArg) queueOpenFile(initialLogFileArg)
+    createWindow()
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      else focusMainWindow()
+    })
+  })
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit()
