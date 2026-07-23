@@ -17,7 +17,7 @@ export const DEFAULT_DISPLAY: DisplaySettings = {
   lineWidth: 0.5,
   curve: "monotone",
   showGrid: true,
-  height: "normal",
+  height: "mini",
   focusDim: true,
 }
 

@@ -43,7 +43,6 @@ export function VehicleCard({ log }: { log: ParsedLog }) {
       return
     }
     run(vin, false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [log])
 
   const headline = info ? [info.modelYear, info.make, info.model, info.trim].filter(Boolean).join(" ") : ""

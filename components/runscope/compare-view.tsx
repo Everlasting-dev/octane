@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useRef, useState, type CSSProperties } from "react"
-import { Crosshair, GripHorizontal, Lock, LockOpen, RotateCcw, X } from "lucide-react"
+import { GripHorizontal, Lock, LockOpen, RotateCcw, X } from "lucide-react"
 import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from "recharts"
 import { lttb } from "@/lib/downsample"
 import { calculateDiff } from "@/lib/compare"

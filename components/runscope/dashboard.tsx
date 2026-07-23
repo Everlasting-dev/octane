@@ -131,14 +131,6 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
     loadTemplates().then(ensureSeedTemplates).then(setTemplates)
   }, [])
 
-  // On tall/hi-res displays, start the Signal Matrix at a taller chart tier so
-  // plots aren't a thin strip (still adjustable with the height hotkey).
-  useEffect(() => {
-    if (typeof window !== "undefined" && window.innerHeight >= 1200) {
-      setDisplay((d) => ({ ...d, height: "tall" }))
-    }
-  }, [])
-
   // Analysis Plot state (persisted across view switches).
   const [analysisTransforms, setAnalysisTransforms] = useState<Record<string, Transform>>({})
   const [analysisFocus, setAnalysisFocus] = useState<string | null>(null)
