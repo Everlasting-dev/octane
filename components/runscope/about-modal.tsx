@@ -1,9 +1,9 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { ExternalLink, RefreshCw, X } from "lucide-react"
+import { RefreshCw, X } from "lucide-react"
 import { OctaneLogo } from "./logo"
-import { getAppVersion, checkForUpdates, isDesktop, GITHUB_URL } from "@/lib/app-info"
+import { getAppVersion, checkForUpdates, isDesktop } from "@/lib/app-info"
 import { getAuthState } from "@/lib/auth"
 
 export function AboutModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -66,15 +66,6 @@ export function AboutModal({ open, onClose }: { open: boolean; onClose: () => vo
               Check for updates
             </button>
           )}
-          <a
-            href={GITHUB_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-          >
-            <ExternalLink className="size-3.5" />
-            Octane on GitHub
-          </a>
         </div>
 
         <p className="mt-4 text-center text-[10px] text-muted-foreground">© AK Everlasting Dev · ECU telemetry analyzer</p>

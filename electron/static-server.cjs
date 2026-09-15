@@ -11,6 +11,7 @@ const MIME = {
   ".mjs": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -29,7 +30,7 @@ const MIME = {
  * origin (so localStorage persists); falls back to a random port if it's taken.
  * Resolves with the http.Server.
  */
-function startServer(outDir, preferredPort = 0) {
+function startServer(outDir, preferredPort = 0, host = "127.0.0.1") {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       try {
@@ -67,12 +68,12 @@ function startServer(outDir, preferredPort = 0) {
     server.on("error", (err) => {
       if (preferredPort && !triedFallback && err.code === "EADDRINUSE") {
         triedFallback = true
-        server.listen(0, "127.0.0.1") // fall back to a random free port
+        server.listen(0, host) // fall back to a random free port
       } else {
         reject(err)
       }
     })
-    server.listen(preferredPort, "127.0.0.1")
+    server.listen(preferredPort, host)
   })
 }
 

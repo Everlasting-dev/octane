@@ -1,9 +1,10 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { CheckCircle2, Download, Loader2, RefreshCw, TriangleAlert, X } from "lucide-react"
-import { GITHUB_URL, isDesktop } from "@/lib/app-info"
+import { CheckCircle2, Download, Loader2, RefreshCw, ShieldCheck, TriangleAlert, X } from "lucide-react"
+import { isDesktop } from "@/lib/app-info"
 import { checkForUpdates, installUpdate, subscribeToUpdates, type UpdateStatus } from "@/lib/updates"
+import { errorDetails, friendlyUpdateError } from "@/lib/friendly-errors"
 import { OctaneLogo } from "./logo"
 
 const initialStatus: UpdateStatus = {
@@ -55,13 +56,15 @@ export function UpdateModal() {
   const active = status.phase === "checking" || status.phase === "available" || status.phase === "downloading" || status.phase === "installing"
   const canInstall = status.phase === "ready"
   const canClose = !active
+  const friendlyError = useMemo(() => (status.phase === "error" ? friendlyUpdateError(status.message) : null), [status.message, status.phase])
 
   const detail = useMemo(() => {
+    if (status.phase === "error") return friendlyError?.message
     if (status.phase !== "downloading") return status.message
     const downloaded = formatBytes(status.transferred)
     const total = formatBytes(status.total)
     return `${downloaded} of ${total}`
-  }, [status])
+  }, [friendlyError, status])
 
   async function beginCheck() {
     if (!isDesktop()) {
@@ -72,9 +75,11 @@ export function UpdateModal() {
 
     setOpen(true)
     setChecking(true)
-    setStatus({ phase: "checking", percent: 0, message: "Checking GitHub releases..." })
+    setStatus({ phase: "checking", percent: 0, message: "Checking Octane updates..." })
     try {
       await checkForUpdates()
+    } catch (error) {
+      setStatus({ phase: "error", message: errorDetails(error) })
     } finally {
       setChecking(false)
     }
@@ -87,7 +92,11 @@ export function UpdateModal() {
       percent: 100,
       message: "Closing Octane and launching the installer...",
     }))
-    await installUpdate()
+    try {
+      await installUpdate()
+    } catch (error) {
+      setStatus({ phase: "error", message: errorDetails(error) })
+    }
   }
 
   useEffect(() => {
@@ -155,7 +164,20 @@ export function UpdateModal() {
             >
               {statusIcon(status)}
             </span>
-            <p className="min-w-0 flex-1 text-sm text-muted-foreground">{detail || "Preparing update check..."}</p>
+            {friendlyError ? (
+              <div className="min-w-0 flex-1 text-sm">
+                <p className="font-medium text-foreground">{friendlyError.title}</p>
+                <p className="mt-0.5 leading-relaxed text-muted-foreground">{detail || "Preparing update check..."}</p>
+                {friendlyError.details && (
+                  <details className="mt-2 text-xs text-muted-foreground">
+                    <summary className="cursor-pointer select-none">Technical details</summary>
+                    <p className="mt-1 break-words font-mono leading-relaxed">{friendlyError.details}</p>
+                  </details>
+                )}
+              </div>
+            ) : (
+              <p className="min-w-0 flex-1 text-sm text-muted-foreground">{detail || "Preparing update check..."}</p>
+            )}
           </div>
 
           {(status.phase === "downloading" || status.phase === "installing" || status.phase === "ready") && (
@@ -171,19 +193,19 @@ export function UpdateModal() {
           )}
         </div>
 
-        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
-          {status.phase === "error" && (
-            <a
-              href={`${GITHUB_URL}/releases/latest`}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            >
-              <Download className="size-4" />
-              Open release
-            </a>
-          )}
+        <div className="mt-3 rounded-lg border border-border bg-card/40 p-3">
+          <div className="flex items-start gap-2">
+            <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
+            <div className="min-w-0">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Certificate validation</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Windows verifies the installer signature before install. Trust this publisher on shop PCs by deploying the Octane signing certificate through Windows certificate management or policy.
+              </p>
+            </div>
+          </div>
+        </div>
 
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
           {canInstall ? (
             <button
               type="button"

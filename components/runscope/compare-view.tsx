@@ -71,9 +71,9 @@ export function CompareView(props: CompareViewProps) {
   }, [files])
 
   return (
-    <div className="flex flex-col gap-4 pb-4">
+    <div className="flex flex-col gap-4 pb-20 lg:pb-4">
       {/* Alignment bar */}
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card/60 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card/60 px-3 py-3 sm:gap-3 sm:px-4">
         <span className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
           <GripHorizontal className="size-3.5" /> Align
         </span>
@@ -84,11 +84,11 @@ export function CompareView(props: CompareViewProps) {
             <div
               key={l.fileName}
               className={cn(
-                "flex items-center gap-1 rounded-md border px-1.5 py-1 transition-colors",
+                "flex max-w-full items-center gap-1 rounded-md border px-1.5 py-1 transition-colors",
                 active ? "border-primary bg-primary/10" : "border-border bg-card",
               )}
             >
-              <button type="button" onClick={() => onSetActiveFile(l.fileName)} className="flex items-center gap-1.5 px-1">
+          <button type="button" onClick={() => onSetActiveFile(l.fileName)} className="flex min-w-0 items-center gap-1.5 px-1">
                 <span className="size-2.5 rounded-full" style={{ backgroundColor: FILE_COLORS[fi] }} />
                 <span className="max-w-[140px] truncate text-xs text-foreground" title={l.fileName}>
                   {l.fileName.replace(/\.[^.]+$/, "")}
@@ -118,7 +118,7 @@ export function CompareView(props: CompareViewProps) {
             </div>
           )
         })}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
           <button
             type="button"
             onClick={onToggleLock}
@@ -203,7 +203,7 @@ function CompareArea({
 
   return (
     <section className="overflow-hidden rounded-xl border border-border bg-card/60">
-      <header className="flex flex-wrap items-center gap-2 px-4 py-3">
+      <header className="flex flex-wrap items-center gap-2 px-3 py-3 sm:px-4">
         <h3 className="text-sm font-semibold text-foreground">Plot {areaIdx + 1}</h3>
         <div className="flex flex-wrap items-center gap-1.5">
           {channels.map((label) => (
@@ -220,7 +220,7 @@ function CompareArea({
             </span>
           ))}
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
           {channels.length > 0 && (
             <div className="flex rounded-md border border-border bg-secondary/40 p-0.5 text-[11px]">
               {(["values", "diff"] as const).map((m) => (
@@ -435,10 +435,10 @@ function ChannelFacet({
 
   return (
     <div style={facetStyle} className="px-2 py-2">
-      <div className="flex items-center justify-between gap-3 px-2">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-2 sm:gap-3">
+        <div className="flex min-w-0 items-center gap-2">
           {locked && <Lock className="size-3 shrink-0 text-primary" aria-label="Alignment locked" />}
-          <span className="text-sm font-medium text-foreground">{label}</span>
+          <span className="min-w-0 truncate text-sm font-medium text-foreground">{label}</span>
           <span className="font-mono text-[11px] text-muted-foreground">
             {isDiff ? `Δ ${unit !== "—" ? unit : ""} vs ${refLog?.fileName.replace(/\.[^.]+$/, "")}` : unit !== "—" ? unit : ""}
           </span>
@@ -475,7 +475,7 @@ function ChannelFacet({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         className={cn(
-          "h-40 w-full touch-none select-none",
+          "h-40 w-full touch-pan-y select-none sm:touch-none",
           locked ? "cursor-crosshair" : activeFile ? "cursor-ew-resize" : "cursor-pointer",
         )}
       >

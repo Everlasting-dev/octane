@@ -5,8 +5,12 @@ release/
 *.log
 .DS_Store
 .env*.local
+.openai/
 
 *.tsbuildinfo
+mobile-*-preview.png
+mobile-preview*.png
+reference_images/
 
-# Internal development notes — not for the public repo
+# Internal development notes - not for the public repo
 REBUILD-NOTES.md

@@ -23,7 +23,7 @@ interface LoadedFilesProps {
 export function LoadedFiles({ files, activeIndex, compare, colors, onSelect, onRemove }: LoadedFilesProps) {
   return (
     <section className="rounded-xl border border-border bg-card/60">
-      <header className="flex items-center justify-between border-b border-border px-4 py-3">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-accent">Loaded Files</h2>
         <span className="font-mono text-xs text-muted-foreground">
           {files.length} {files.length === 1 ? "capture" : "captures"}
@@ -37,7 +37,7 @@ export function LoadedFiles({ files, activeIndex, compare, colors, onSelect, onR
             <li
               key={file.id}
               className={cn(
-                "flex items-center gap-3 px-4 py-3 transition-colors",
+                "flex items-center gap-3 px-3 py-3 transition-colors sm:px-4",
                 !compare && "cursor-pointer hover:bg-secondary/40",
                 !compare && active && "bg-secondary/30",
               )}
@@ -49,8 +49,8 @@ export function LoadedFiles({ files, activeIndex, compare, colors, onSelect, onR
               >
                 <FileText className="size-4" />
               </span>
-              <div className="flex min-w-0 flex-col">
-                <span className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="flex min-w-0 items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                   Log {i + 1}
                   {!compare && active && <span className="text-primary">· active</span>}
                   {compare && (
@@ -61,11 +61,11 @@ export function LoadedFiles({ files, activeIndex, compare, colors, onSelect, onR
                   {file.name}
                 </span>
               </div>
-              <div className="ml-auto flex shrink-0 items-center gap-4 text-right">
+              <div className="ml-auto flex shrink-0 items-center gap-2 text-right sm:gap-4">
                 <span className="hidden font-mono text-xs text-muted-foreground sm:inline">
                   {file.samples.toLocaleString()} samples
                 </span>
-                <span className="font-mono text-xs text-muted-foreground">{file.size}</span>
+                <span className="hidden font-mono text-xs text-muted-foreground min-[390px]:inline">{file.size}</span>
                 <button
                   type="button"
                   aria-label={`Remove ${file.name}`}

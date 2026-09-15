@@ -10,6 +10,8 @@ export type ActionId =
   | "movePlot"
   | "peakToggle"
   | "fullscreen"
+  | "togglePick"
+  | "editChannels"
   | "quickSearch"
   | "cycleFile"
   | "toggleGrid"
@@ -20,9 +22,10 @@ export type ActionId =
   | "reset"
   | "viewMatrix"
   | "viewPlot"
+  | "viewChannels"
   | "viewCompare"
 
-export type ActionContext = "plot" | "matrix" | "compare" | "global"
+export type ActionContext = "plot" | "matrix" | "channels" | "compare" | "global"
 
 export const ACTIONS: { id: ActionId; label: string; context: ActionContext }[] = [
   { id: "focusNext", label: "Focus next line", context: "plot" },
@@ -31,6 +34,8 @@ export const ACTIONS: { id: ActionId; label: string; context: ActionContext }[] 
   { id: "movePlot", label: "Send focused line to the other plot", context: "plot" },
   { id: "peakToggle", label: "Toggle peak markers", context: "plot" },
   { id: "fullscreen", label: "Fullscreen the plot", context: "plot" },
+  { id: "togglePick", label: "Toggle readout picking", context: "global" },
+  { id: "editChannels", label: "Edit Channels layout", context: "channels" },
   { id: "heightCycle", label: "Cycle chart height", context: "matrix" },
   { id: "lockCompare", label: "Lock alignment", context: "compare" },
   { id: "quickSearch", label: "Quick search (Matrix & Plot)", context: "global" },
@@ -41,6 +46,7 @@ export const ACTIONS: { id: ActionId; label: string; context: ActionContext }[] 
   { id: "reset", label: "Reset view", context: "global" },
   { id: "viewMatrix", label: "View: Signal Matrix", context: "global" },
   { id: "viewPlot", label: "View: Analysis Plot", context: "global" },
+  { id: "viewChannels", label: "View: Channels", context: "global" },
   { id: "viewCompare", label: "View: Compare", context: "global" },
 ]
 
@@ -53,6 +59,8 @@ export const DEFAULT_BINDINGS: Bindings = {
   movePlot: "m",
   peakToggle: "p",
   fullscreen: "f",
+  togglePick: "v",
+  editChannels: "e",
   quickSearch: "/",
   cycleFile: ".",
   heightCycle: "h",
@@ -63,7 +71,8 @@ export const DEFAULT_BINDINGS: Bindings = {
   reset: "r",
   viewMatrix: "1",
   viewPlot: "2",
-  viewCompare: "3",
+  viewChannels: "3",
+  viewCompare: "4",
 }
 
 const KEY = "octane:keybindings"

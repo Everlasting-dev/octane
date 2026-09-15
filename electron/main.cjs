@@ -2,7 +2,7 @@
 // Serves the static Next.js export from an in-process localhost server, then
 // loads it in a BrowserWindow so Next's absolute asset paths work offline.
 
-const { app, BrowserWindow, Menu, shell, ipcMain, screen } = require("electron")
+const { app, BrowserWindow, Menu, shell, ipcMain, screen, dialog } = require("electron")
 const path = require("node:path")
 const fs = require("node:fs")
 const { startServer } = require("./static-server.cjs")
@@ -164,7 +164,7 @@ function getUpdater() {
     updaterListenersBound = true
 
     autoUpdater.on("checking-for-update", () => {
-      sendUpdateStatus({ phase: "checking", message: "Checking GitHub releases..." })
+      sendUpdateStatus({ phase: "checking", message: "Checking Octane updates..." })
     })
 
     autoUpdater.on("update-available", (info) => {
@@ -189,7 +189,7 @@ function getUpdater() {
         transferred: progress?.transferred ?? 0,
         total: progress?.total ?? 0,
         bytesPerSecond: progress?.bytesPerSecond ?? 0,
-        message: "Downloading update...",
+        message: "Downloading Octane update...",
       })
     })
 
@@ -254,6 +254,30 @@ function runInRenderer(win, code) {
   }
 }
 
+async function openLogDialog(win) {
+  try {
+    const result = await dialog.showOpenDialog(win, {
+      title: "Open Octane log",
+      properties: ["openFile"],
+      filters: [
+        { name: "ECU log files", extensions: ["csv", "txt"] },
+        { name: "All files", extensions: ["*"] },
+      ],
+    })
+    if (result.canceled || !result.filePaths?.[0]) return
+    queueOpenFile(result.filePaths[0])
+    focusMainWindow()
+  } catch (error) {
+    pendingOpenFile = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      path: "",
+      fileName: "Open log",
+      error: error?.message ?? String(error),
+    }
+    sendOpenFile(win)
+  }
+}
+
 function buildMenu(win) {
   const template = [
     {
@@ -262,20 +286,10 @@ function buildMenu(win) {
         {
           label: "Open log...",
           accelerator: "CmdOrCtrl+O",
-          click: () => runInRenderer(win, "window.__octaneOpenLog && window.__octaneOpenLog()"),
+          click: () => void openLogDialog(win),
         },
         { type: "separator" },
         { role: "quit" },
-      ],
-    },
-    {
-      label: "View",
-      submenu: [
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
-        { type: "separator" },
-        { role: "togglefullscreen" },
       ],
     },
     {

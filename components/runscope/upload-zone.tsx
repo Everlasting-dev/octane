@@ -35,7 +35,7 @@ export function UploadZone({ onFile, onSample, loading, error, compact }: Upload
       }}
       className={cn(
         "flex flex-col items-center justify-center rounded-xl border border-dashed text-center transition-colors",
-        compact ? "gap-2 px-4 py-8" : "gap-3 px-6 py-20",
+        compact ? "gap-2 px-4 py-8" : "gap-3 px-4 py-14 sm:px-6 sm:py-20",
         dragOver ? "border-primary bg-primary/5" : "border-border bg-card/40",
       )}
     >

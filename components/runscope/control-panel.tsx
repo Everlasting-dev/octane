@@ -43,6 +43,7 @@ interface ControlPanelProps {
   onUpdateTemplate: (id: string) => void
   onImportTemplates: (file: File) => void
   onExportTemplates: () => void
+  mobile?: boolean
 }
 
 export function ControlPanel(props: ControlPanelProps) {
@@ -71,6 +72,7 @@ export function ControlPanel(props: ControlPanelProps) {
     onUpdateTemplate,
     onImportTemplates,
     onExportTemplates,
+    mobile = false,
   } = props
 
   const importRef = useRef<HTMLInputElement>(null)
@@ -98,7 +100,14 @@ export function ControlPanel(props: ControlPanelProps) {
   }
 
   return (
-    <div className="flex h-full flex-col gap-4 p-4">
+    <div
+      className={cn(
+        "octane-control-panel flex h-full min-h-0 flex-col",
+        mobile
+          ? "octane-mobile-control-panel gap-3 overflow-y-auto overscroll-contain p-3 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]"
+          : "gap-4 p-4",
+      )}
+    >
       {/* 1 · Search (fixed) */}
       <div className="relative shrink-0">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -121,35 +130,34 @@ export function ControlPanel(props: ControlPanelProps) {
           >
             <X className="size-3.5" />
           </button>
-        ) : (
+        ) : !mobile ? (
           <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-secondary px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
             ⌘K
           </kbd>
-        )}
+        ) : null}
       </div>
 
       {/* 2 · Controls (fixed) */}
       <div className="flex shrink-0 flex-col gap-2">
         <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Controls</span>
-        <div className="grid grid-cols-2 gap-2">
+        <div className={cn("grid gap-2", mobile ? "grid-cols-3" : "grid-cols-2")}>
           <Toggle pressed={sync} onPressedChange={onSyncChange} label="Sync" />
-          <button
-            type="button"
-            onClick={() => onAnnotateChange(!annotate)}
-            aria-pressed={annotate}
-            className={cn(
-              "inline-flex items-center justify-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm transition-colors",
-              annotate
-                ? "border-primary bg-primary/15 text-foreground"
-                : "border-border bg-card text-foreground hover:bg-secondary",
-            )}
-          >
-            <Crosshair className="size-3.5" />
-            Annotate
-          </button>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
+          {!mobile && (
+            <button
+              type="button"
+              onClick={() => onAnnotateChange(!annotate)}
+              aria-pressed={annotate}
+              className={cn(
+                "inline-flex items-center justify-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm transition-colors",
+                annotate
+                  ? "border-primary bg-primary/15 text-foreground"
+                  : "border-border bg-card text-foreground hover:bg-secondary",
+              )}
+            >
+              <Crosshair className="size-3.5" />
+              Annotate
+            </button>
+          )}
           <button
             type="button"
             onClick={onReset}
@@ -173,6 +181,7 @@ export function ControlPanel(props: ControlPanelProps) {
       </div>
 
       {/* 3 · Templates (fixed) */}
+      {!mobile && (
       <div className="flex shrink-0 flex-col gap-2">
         <input
           ref={importRef}
@@ -348,6 +357,7 @@ export function ControlPanel(props: ControlPanelProps) {
               </p>
             )}
       </div>
+      )}
 
       {/* 4 · Window plot (fixed) */}
       {windowSlot && (
@@ -358,7 +368,7 @@ export function ControlPanel(props: ControlPanelProps) {
       )}
 
       {/* 4 · Channels (scrolls) */}
-      <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <div className={cn("flex min-h-0 flex-col gap-2", mobile ? "shrink-0" : "flex-1")}>
         <div className="flex shrink-0 items-center justify-between">
           <span className="flex items-center gap-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Channels <span className="text-muted-foreground/60">· {activeCount}/{channels.length}</span>
@@ -386,7 +396,7 @@ export function ControlPanel(props: ControlPanelProps) {
           </div>
         </div>
 
-        <ul className="-mr-2 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto pr-2">
+        <ul className={cn("-mr-2 flex min-h-0 flex-col gap-0.5 overflow-y-auto pr-2", mobile ? "max-h-[min(52dvh,22rem)]" : "flex-1")}>
           {filtered.map((c) => {
             const on = !hidden.has(c.key)
             return (

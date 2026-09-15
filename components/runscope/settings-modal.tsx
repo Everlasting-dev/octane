@@ -118,14 +118,14 @@ export function SettingsModal({
   if (!open) return null
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-sm sm:items-center sm:p-4"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[85vh] w-full max-w-sm flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-2xl"
+        className="flex max-h-[calc(100dvh-1rem)] min-h-0 w-full max-w-md flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-2xl sm:max-h-[min(90dvh,44rem)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3 sm:px-5 sm:py-4">
           <div className="flex items-center gap-2">
             {page === "keys" && (
               <button
@@ -150,13 +150,14 @@ export function SettingsModal({
         </div>
 
         {page === "main" ? (
-          <div className="flex flex-col gap-5 overflow-y-auto p-5">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5">
+            <div className="flex flex-col gap-5">
             <DisplayPanel settings={settings} onChange={onChange} onReset={onReset} />
 
             <button
               type="button"
               onClick={() => setPage("keys")}
-              className="flex items-center justify-between rounded-md border border-border bg-card px-3 py-2.5 text-sm text-foreground transition-colors hover:bg-secondary"
+              className="hidden items-center justify-between rounded-md border border-border bg-card px-3 py-2.5 text-sm text-foreground transition-colors hover:bg-secondary lg:flex"
             >
               <span className="flex items-center gap-2">
                 <Keyboard className="size-4 text-muted-foreground" />
@@ -205,9 +206,10 @@ export function SettingsModal({
                 </button>
               </div>
             )}
+            </div>
           </div>
         ) : (
-          <div className="overflow-y-auto p-5">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5">
             <ShortcutEditor />
           </div>
         )}

@@ -1,27 +1,46 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
-import { Loader2 } from "lucide-react"
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { Loader2, TriangleAlert } from "lucide-react"
 import { Landing } from "./landing"
-import { Dashboard, type DashboardHandle } from "./dashboard"
+import type { DashboardHandle } from "./dashboard"
 import { LoginScreen } from "./login-screen"
 import { ErrorBoundary } from "./error-boundary"
 import { UpdateModal } from "./update-modal"
-import { getAuthState } from "@/lib/auth"
-import { parseLog, type ParsedLog } from "@/lib/csv"
+import { AboutModal } from "./about-modal"
+import { getAuthState, logout, type AuthUser } from "@/lib/auth"
+import { parseLog, parseLogFile, type ParsedLog } from "@/lib/csv"
 import { acknowledgeDesktopOpen, getPendingDesktopOpen, subscribeToDesktopOpen, type DesktopOpenLogPayload } from "@/lib/desktop-files"
+import { friendlyAuthError, friendlyFileError, type FriendlyError } from "@/lib/friendly-errors"
+
+const Dashboard = lazy(async () => ({ default: (await import("./dashboard")).Dashboard }))
+
+function CenteredLoader() {
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-background text-muted-foreground">
+      <Loader2 className="size-5 animate-spin" />
+    </div>
+  )
+}
 
 export function AppShell() {
   const [authState, setAuthState] = useState<"checking" | "in" | "out">("checking")
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null)
   const [inAnalysis, setInAnalysis] = useState(false)
   const [initialLog, setInitialLog] = useState<ParsedLog | null>(null)
   const [showLandingOverlay, setShowLandingOverlay] = useState(false)
-  const [desktopOpenError, setDesktopOpenError] = useState<string | null>(null)
+  const [showAbout, setShowAbout] = useState(false)
+  const [authError, setAuthError] = useState<FriendlyError | null>(null)
+  const [desktopOpenError, setDesktopOpenError] = useState<FriendlyError | null>(null)
   const dashRef = useRef<DashboardHandle>(null)
   const handledDesktopOpenIds = useRef<Set<string>>(new Set())
 
   useEffect(() => {
-    getAuthState().then((s) => setAuthState(s.authenticated ? "in" : "out"))
+    getAuthState().then((s) => {
+      setAuthUser(s.user ?? null)
+      setAuthError(!s.authenticated && (s.error || s.message) ? friendlyAuthError(s.error || s.message) : null)
+      setAuthState(s.authenticated ? "in" : "out")
+    })
   }, [])
 
   const openLog = useCallback((log: ParsedLog | null) => {
@@ -33,6 +52,65 @@ export function AppShell() {
     }
     setShowLandingOverlay(false)
   }, [inAnalysis])
+
+  const openLogFileDialog = useCallback(() => {
+    if (authState !== "in") {
+      setDesktopOpenError({ title: "Sign in required", message: "Sign in before opening a log from the desktop menu." })
+      return
+    }
+    const input = document.createElement("input")
+    input.type = "file"
+    input.accept = ".csv,.txt,text/csv,text/plain"
+    input.style.position = "fixed"
+    input.style.left = "-9999px"
+    document.body.appendChild(input)
+    const cleanup = () => {
+      try {
+        document.body.removeChild(input)
+      } catch {
+        /* already removed */
+      }
+    }
+    input.addEventListener(
+      "change",
+      async () => {
+        const file = input.files?.[0]
+        cleanup()
+        if (!file) return
+        try {
+          openLog(await parseLogFile(file))
+        } catch (e) {
+          setDesktopOpenError(friendlyFileError(e, file.name))
+        }
+      },
+      { once: true },
+    )
+    setTimeout(cleanup, 5 * 60 * 1000)
+    input.click()
+  }, [authState, openLog])
+
+  useEffect(() => {
+    const globals = window as unknown as {
+      __octaneOpenLog?: () => void
+      __octaneOpenAbout?: () => void
+    }
+    globals.__octaneOpenLog = openLogFileDialog
+    globals.__octaneOpenAbout = () => setShowAbout(true)
+    return () => {
+      delete globals.__octaneOpenLog
+      delete globals.__octaneOpenAbout
+    }
+  }, [openLogFileDialog])
+
+  async function signOut() {
+    await logout()
+    setAuthUser(null)
+    setAuthError(null)
+    setAuthState("out")
+    setInAnalysis(false)
+    setShowLandingOverlay(false)
+    setInitialLog(null)
+  }
 
   useEffect(() => {
     if (authState !== "in") return
@@ -48,7 +126,7 @@ export function AppShell() {
         if (typeof payload.text !== "string") throw new Error("No file contents were provided.")
         openLog(parseLog(payload.text, payload.fileName, payload.size ?? payload.text.length))
       } catch (e) {
-        setDesktopOpenError(`Could not open ${payload.fileName}: ${e instanceof Error ? e.message : String(e)}`)
+        setDesktopOpenError(friendlyFileError(e, payload.fileName))
       } finally {
         await acknowledgeDesktopOpen(payload.id)
       }
@@ -66,12 +144,22 @@ export function AppShell() {
   }, [authState, openLog])
 
   const desktopErrorBanner = desktopOpenError ? (
-    <div className="fixed left-1/2 top-4 z-50 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-md border border-destructive/40 bg-popover px-3 py-2 text-sm text-destructive shadow-xl">
-      <span className="min-w-0 truncate">{desktopOpenError}</span>
+    <div className="fixed left-1/2 top-4 z-50 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-start gap-3 rounded-lg border border-destructive/40 bg-popover px-3 py-2 text-sm text-destructive shadow-xl">
+      <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+      <div className="min-w-0">
+        <p className="font-medium">{desktopOpenError.title}</p>
+        <p className="mt-0.5 max-w-xl break-words text-destructive/90">{desktopOpenError.message}</p>
+        {desktopOpenError.details && (
+          <details className="mt-1 text-xs text-destructive/80">
+            <summary className="cursor-pointer select-none">Technical details</summary>
+            <p className="mt-1 break-words font-mono leading-relaxed">{desktopOpenError.details}</p>
+          </details>
+        )}
+      </div>
       <button
         type="button"
         onClick={() => setDesktopOpenError(null)}
-        className="shrink-0 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        className="ml-auto shrink-0 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
       >
         Dismiss
       </button>
@@ -81,10 +169,9 @@ export function AppShell() {
   if (authState === "checking") {
     return (
       <>
-        <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
-          <Loader2 className="size-5 animate-spin" />
-        </div>
+        <CenteredLoader />
         {desktopErrorBanner}
+        <AboutModal open={showAbout} onClose={() => setShowAbout(false)} />
         <UpdateModal />
       </>
     )
@@ -93,8 +180,16 @@ export function AppShell() {
   if (authState === "out") {
     return (
       <>
-        <LoginScreen onSuccess={() => setAuthState("in")} />
+        <LoginScreen
+          initialError={authError}
+          onSuccess={(state) => {
+            setAuthUser(state.user ?? null)
+            setAuthError(null)
+            setAuthState("in")
+          }}
+        />
         {desktopErrorBanner}
+        <AboutModal open={showAbout} onClose={() => setShowAbout(false)} />
         <UpdateModal />
       </>
     )
@@ -105,13 +200,22 @@ export function AppShell() {
 
   return (
     <ErrorBoundary>
-      {inAnalysis && <Dashboard ref={dashRef} initialLog={initialLog} onHome={() => setShowLandingOverlay(true)} />}
+      <Suspense fallback={<CenteredLoader />}>
+        {inAnalysis && <Dashboard ref={dashRef} initialLog={initialLog} accountEmail={authUser?.email ?? null} onHome={() => setShowLandingOverlay(true)} />}
+      </Suspense>
       {showLanding && (
         <div className="fixed inset-0 z-40 overflow-auto bg-background">
-          <Landing onOpen={openLog} canResume={inAnalysis} onResume={() => setShowLandingOverlay(false)} />
+          <Landing
+            onOpen={openLog}
+            canResume={inAnalysis}
+            onResume={() => setShowLandingOverlay(false)}
+            accountEmail={authUser?.email ?? null}
+            onLogout={() => void signOut()}
+          />
         </div>
       )}
       {desktopErrorBanner}
+      <AboutModal open={showAbout} onClose={() => setShowAbout(false)} />
       <UpdateModal />
     </ErrorBoundary>
   )

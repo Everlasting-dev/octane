@@ -7,6 +7,7 @@ import type { ViewMode } from "./rail"
 
 const GROUPS: { context: ActionContext; title: string }[] = [
   { context: "plot", title: "Analysis Plot" },
+  { context: "channels", title: "Channels" },
   { context: "matrix", title: "Signal Matrix" },
   { context: "compare", title: "Compare" },
   { context: "global", title: "General" },
@@ -20,7 +21,7 @@ const FIXED: { combo: string; label: string }[] = [
 ]
 
 function viewContext(view: ViewMode): ActionContext {
-  return view === "plot" ? "plot" : view === "compare" ? "compare" : "matrix"
+  return view === "plot" ? "plot" : view === "channels" ? "channels" : view === "compare" ? "compare" : "matrix"
 }
 
 function Row({ combo, label }: { combo: string; label: string }) {

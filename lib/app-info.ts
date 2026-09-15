@@ -30,5 +30,3 @@ export async function getAppVersion(): Promise<string> {
 export async function checkForUpdates(): Promise<void> {
   await checkForAppUpdates()
 }
-
-export const GITHUB_URL = "https://github.com/Everlasting-dev/octane"
