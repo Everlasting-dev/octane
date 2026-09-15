@@ -8,9 +8,9 @@ import { cn } from "@/lib/utils"
 import { OctaneLogo } from "./logo"
 
 const FEATURES = [
-  { icon: LayoutList, title: "Signal Matrix", text: "Plot every channel on a synced time axis and click to inspect exact values." },
-  { icon: GitCompare, title: "Compare runs", text: "Overlay multiple logs and read time-aligned deltas across captures." },
-  { icon: MapPin, title: "Annotate", text: "Pin knock, shift and boost events to timestamps; they persist per file." },
+  { icon: LayoutList, title: "Explore", text: "Open a capture and review channels at your own pace." },
+  { icon: GitCompare, title: "Compare", text: "Work across multiple files when you need side-by-side context." },
+  { icon: MapPin, title: "Mark", text: "Leave notes on moments that matter in a session." },
 ]
 
 export function Landing({
@@ -63,10 +63,9 @@ export function Landing({
           <span className="inline-flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
             <OctaneLogo className="size-9" />
           </span>
-          <h1 className="text-balance text-4xl font-semibold tracking-tight">Signal Matrix</h1>
+          <h1 className="text-balance text-4xl font-semibold tracking-tight">Octane</h1>
           <p className="max-w-xl text-pretty text-base leading-relaxed text-muted-foreground">
-            Client-side ECU log analysis. Import a CSV capture to inspect, compare and annotate your
-            run data — nothing leaves your device.
+            Desktop utility for working with local capture files.
           </p>
         </div>
 
@@ -146,7 +145,7 @@ export function Landing({
       </main>
 
       <footer className="px-6 py-4 text-center text-xs text-muted-foreground">
-        Octane · ECU telemetry analyzer
+        Octane
       </footer>
     </div>
   )

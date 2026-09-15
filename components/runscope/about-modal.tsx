@@ -77,7 +77,7 @@ export function AboutModal({ open, onClose }: { open: boolean; onClose: () => vo
           </a>
         </div>
 
-        <p className="mt-4 text-center text-[10px] text-muted-foreground">© AK Everlasting Dev · ECU telemetry analyzer</p>
+        <p className="mt-4 text-center text-[10px] text-muted-foreground">© AK Everlasting Dev</p>
       </div>
     </div>
   )

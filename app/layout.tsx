@@ -1,4 +1,3 @@
-import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
@@ -10,8 +9,8 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Octane — Signal Matrix',
-  description: 'Inspect and compare ECU telemetry signals from log captures.',
+  title: 'Octane',
+  description: 'Desktop utility.',
   generator: 'Octane',
   icons: {
     icon: [
@@ -52,7 +51,6 @@ export default function RootLayout({
     >
       <body className="font-sans antialiased">
         {children}
-        {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>
   )
