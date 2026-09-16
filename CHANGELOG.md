@@ -2,6 +2,14 @@
 
 All notable changes to Octane are documented here.
 
+## v0.9.1 - 2026-09-16
+
+### Fixed
+
+- Fixed the mobile Matrix/Analysis top control bar so it stays reachable above the scrollable plot list with iPhone safe-area padding.
+- Fixed mobile quick-search plot jumps so the selected plot is not hidden beneath the fixed top controls.
+- Reset the mobile plot scroll position when loading logs, switching Matrix/Analysis, or resetting Matrix.
+
 ## v0.9.0 - 2026-09-15
 
 Development-channel update. Octane remains pre-1.0 while the desktop installer, licensing/update flow, Channels presets, and mobile ergonomics are still being refined.

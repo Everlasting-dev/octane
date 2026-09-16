@@ -896,6 +896,13 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
     else setAnnotations([])
   }, [activeLog])
 
+  function scrollMainToTop(behavior: ScrollBehavior = "auto") {
+    if (typeof window === "undefined") return
+    requestAnimationFrame(() => {
+      mainRef.current?.scrollTo({ top: 0, behavior })
+    })
+  }
+
   function resetView(dur: number) {
     setZoom(100)
     setDomain([0, dur])
@@ -913,6 +920,7 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
     setCollapsed(new Set())
     viewWindowsRef.current = {} // per-view windows don't carry across files
     resetView(log.duration)
+    scrollMainToTop()
   }
 
   async function loadFile(file: File) {
@@ -1035,6 +1043,7 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
     } else {
       resetView(dur)
     }
+    if (mobileViewport || isMobileViewportNow()) scrollMainToTop()
   }
 
   function setAreaChannels(areaIdx: number, channels: string[]) {
@@ -1288,6 +1297,7 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
     setHighlightChannel(null)
     setMobileWindowOpen(false)
     setSync(true)
+    scrollMainToTop()
   }
 
   function resetAnalysisView() {

@@ -245,6 +245,21 @@
     display: none;
   }
 
+  .octane-app-header {
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: 60;
+    min-height: calc(3.25rem + env(safe-area-inset-top, 0px));
+    padding-top: max(0.55rem, env(safe-area-inset-top, 0px));
+    padding-bottom: 0.45rem;
+    box-shadow: 0 12px 28px rgb(0 0 0 / 42%);
+  }
+
+  .mobile-matrix-mode [id^="chart-"],
+  .mobile-analysis-mode [id^="chart-"] {
+    scroll-margin-top: calc(4.25rem + env(safe-area-inset-top, 0px));
+  }
+
   .mobile-matrix-mode input,
   .mobile-matrix-mode select,
   .mobile-matrix-mode textarea,
@@ -271,7 +286,7 @@
   }
 
   .mobile-matrix-mode main {
-    padding-top: 0.75rem;
+    padding-top: calc(4.45rem + env(safe-area-inset-top, 0px));
   }
 
   .octane-mobile-view-toggle {
@@ -319,7 +334,7 @@
   }
 
   .mobile-analysis-mode main {
-    padding-top: 0.75rem;
+    padding-top: calc(4.45rem + env(safe-area-inset-top, 0px));
   }
 
   .mobile-analysis-mode .analysis-heading {
@@ -399,10 +414,10 @@
 
 @media (max-width: 1023px) and (orientation: landscape) {
   .mobile-matrix-mode .octane-app-header {
-    min-height: 2.5rem;
+    min-height: calc(2.6rem + env(safe-area-inset-top, 0px));
     flex-wrap: nowrap;
     gap: 0.35rem;
-    padding: 0.25rem 0.5rem;
+    padding: max(0.25rem, env(safe-area-inset-top, 0px)) 0.5rem 0.25rem;
   }
 
   .mobile-matrix-mode .octane-app-title {
@@ -425,14 +440,14 @@
   }
 
   .mobile-matrix-mode main {
-    padding: 0.4rem 0.5rem calc(6.35rem + env(safe-area-inset-bottom, 0px));
+    padding: calc(3.05rem + env(safe-area-inset-top, 0px)) 0.5rem calc(6.35rem + env(safe-area-inset-bottom, 0px));
   }
 
   .mobile-analysis-mode .octane-app-header {
-    min-height: 2.5rem;
+    min-height: calc(2.6rem + env(safe-area-inset-top, 0px));
     flex-wrap: nowrap;
     gap: 0.35rem;
-    padding: 0.25rem 0.5rem;
+    padding: max(0.25rem, env(safe-area-inset-top, 0px)) 0.5rem 0.25rem;
   }
 
   .mobile-analysis-mode .octane-app-title {
@@ -453,7 +468,7 @@
   }
 
   .mobile-analysis-mode main {
-    padding: 0.35rem 0.5rem 0;
+    padding: calc(3rem + env(safe-area-inset-top, 0px)) 0.5rem 0;
   }
 
   .mobile-analysis-mode .octane-analysis-plot {
