@@ -1471,10 +1471,9 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
                 onClick={() => setMobileControlsOpen(true)}
                 title="Open controls"
                 aria-label="Open controls"
-                className="octane-mobile-controls-trigger inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-border bg-card px-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground lg:hidden"
+                className="octane-mobile-controls-trigger inline-flex size-9 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground lg:hidden"
               >
                 <SlidersHorizontal className="size-4" />
-                <span>Controls</span>
               </button>
             )}
             {hasLogs && (

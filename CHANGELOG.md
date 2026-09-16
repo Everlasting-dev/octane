@@ -2,6 +2,14 @@
 
 All notable changes to Octane are documented here.
 
+## v0.9.3 - 2026-09-16
+
+### Fixed
+
+- Restored the compact mobile top toolbar icon design while keeping iPhone safe-area spacing.
+- Added landscape safe-area spacing for the mobile Analysis ghost readout so it avoids the iPhone camera island.
+- Added left/right/bottom safe-area spacing for the mobile Analysis timeline, channel sheet, and fullscreen plot header.
+
 ## v0.9.2 - 2026-09-16
 
 ### Fixed
