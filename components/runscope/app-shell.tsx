@@ -204,7 +204,7 @@ export function AppShell() {
         {inAnalysis && <Dashboard ref={dashRef} initialLog={initialLog} accountEmail={authUser?.email ?? null} onHome={() => setShowLandingOverlay(true)} />}
       </Suspense>
       {showLanding && (
-        <div className="fixed inset-0 z-40 overflow-auto bg-background">
+        <div className="octane-landing-overlay fixed inset-0 z-40 overflow-auto bg-background">
           <Landing
             onOpen={openLog}
             canResume={inAnalysis}

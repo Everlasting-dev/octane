@@ -47,7 +47,7 @@ export function Landing({
   }
 
   return (
-    <div className="flex min-h-dvh flex-col bg-background text-foreground">
+    <div className="flex min-h-full flex-col bg-background text-foreground">
       <header className="flex items-center gap-2 px-4 py-4 sm:px-6">
         <span className="inline-flex size-7 items-center justify-center rounded-lg bg-primary/15 text-primary">
           <OctaneLogo className="size-5" />

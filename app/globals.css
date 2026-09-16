@@ -156,6 +156,29 @@
   }
 }
 
+/*
+ * Device safe areas.
+ *
+ * app/layout.tsx sets `viewportFit: 'cover'`, so the app paints underneath the
+ * status bar, the home indicator and the rounded display corners. Every fixed
+ * or absolutely positioned element has to add that room back itself.
+ *
+ * --octane-safe-side is deliberately the LARGER of the two horizontal insets.
+ * In landscape the sensor housing ("camera island") sits on whichever edge the
+ * phone was rotated towards, and iOS reports the inset only on that edge -- the
+ * opposite edge reports 0. Anything that has to clear the island on BOTH
+ * rotations uses the symmetric value so it does not have to know which way up
+ * the phone is. Chrome that only needs to clear the screen edge keeps using the
+ * cheaper per-side value.
+ */
+:root {
+  --octane-safe-top: env(safe-area-inset-top, 0px);
+  --octane-safe-right: env(safe-area-inset-right, 0px);
+  --octane-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --octane-safe-left: env(safe-area-inset-left, 0px);
+  --octane-safe-side: max(var(--octane-safe-left), var(--octane-safe-right));
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -249,11 +272,11 @@
     position: fixed;
     inset: 0 0 auto;
     z-index: 60;
-    min-height: calc(3.45rem + env(safe-area-inset-top, 0px));
-    padding-top: calc(0.55rem + env(safe-area-inset-top, 0px));
-    padding-right: max(0.75rem, calc(env(safe-area-inset-right, 0px) + 0.5rem));
+    min-height: calc(3.45rem + var(--octane-safe-top));
+    padding-top: calc(0.55rem + var(--octane-safe-top));
+    padding-right: max(0.75rem, calc(var(--octane-safe-side) + 0.5rem));
     padding-bottom: 0.55rem;
-    padding-left: max(0.75rem, calc(env(safe-area-inset-left, 0px) + 0.5rem));
+    padding-left: max(0.75rem, calc(var(--octane-safe-side) + 0.5rem));
     box-shadow: 0 12px 28px rgb(0 0 0 / 42%);
   }
 
@@ -286,7 +309,7 @@
 
   .mobile-matrix-mode [id^="chart-"],
   .mobile-analysis-mode [id^="chart-"] {
-    scroll-margin-top: calc(4.35rem + env(safe-area-inset-top, 0px));
+    scroll-margin-top: calc(4.35rem + var(--octane-safe-top));
   }
 
   .mobile-matrix-mode input,
@@ -324,9 +347,9 @@
 
   .mobile-analysis-mode .octane-analysis-dock {
     position: fixed;
-    left: 0.5rem;
-    right: 0.5rem;
-    bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+    left: max(0.5rem, calc(var(--octane-safe-side) + 0.5rem));
+    right: max(0.5rem, calc(var(--octane-safe-side) + 0.5rem));
+    bottom: calc(0.5rem + var(--octane-safe-bottom));
     max-height: min(72dvh, 30rem);
     border: 1px solid var(--border);
     border-radius: 0.75rem;
@@ -335,9 +358,9 @@
   }
 
   .mobile-analysis-mode .octane-pane-readout {
-    left: max(0.5rem, calc(env(safe-area-inset-left, 0px) + 0.65rem));
-    top: max(0.5rem, calc(env(safe-area-inset-top, 0px) + 0.45rem));
-    max-width: min(17rem, calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 1.5rem));
+    left: max(0.5rem, calc(var(--octane-safe-side) + 0.65rem));
+    top: max(0.5rem, calc(var(--octane-safe-top) + 0.45rem));
+    max-width: min(17rem, calc(100dvw - (var(--octane-safe-side) * 2) - 1.5rem));
     padding: 0.45rem 0.55rem;
     border-color: transparent !important;
     background: transparent !important;
@@ -351,7 +374,7 @@
   }
 
   .mobile-analysis-mode main {
-    padding-top: calc(4.35rem + env(safe-area-inset-top, 0px));
+    padding-top: calc(4.35rem + var(--octane-safe-top));
   }
 
   .mobile-analysis-mode .analysis-heading {
@@ -364,7 +387,7 @@
   }
 
   .mobile-analysis-mode .octane-analysis-timeline {
-    padding: 0.45rem 0.5rem calc(0.45rem + env(safe-area-inset-bottom, 0px));
+    padding: 0.45rem 0.5rem calc(0.45rem + var(--octane-safe-bottom));
   }
 
   .mobile-analysis-mode .octane-analysis-timeline > div {
@@ -380,24 +403,55 @@
     max-height: 100dvh;
     border-radius: 0;
     border-top: 0;
-    padding-top: env(safe-area-inset-top, 0px);
+    padding-top: var(--octane-safe-top);
+    padding-right: var(--octane-safe-side);
+    padding-bottom: var(--octane-safe-bottom);
+    padding-left: var(--octane-safe-side);
   }
 
   .octane-mobile-controls-sheet > div:first-child {
     min-height: 3.35rem;
   }
 
+  /*
+   * The landing and login screens paint edge-to-edge like the rest of the app,
+   * so they need the insets too: without them the Octane wordmark and the
+   * account row sit under the status bar in portrait and under the camera
+   * island in landscape.
+   */
+  .octane-landing-overlay {
+    padding-top: var(--octane-safe-top);
+    padding-right: var(--octane-safe-side);
+    padding-bottom: var(--octane-safe-bottom);
+    padding-left: var(--octane-safe-side);
+  }
+
+  .octane-safe-inline {
+    padding-left: max(1rem, var(--octane-safe-side));
+    padding-right: max(1rem, var(--octane-safe-side));
+  }
+
   .octane-mobile-quick-search {
-    bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+    left: max(0.75rem, calc(var(--octane-safe-side) + 0.5rem));
+    right: max(0.75rem, calc(var(--octane-safe-side) + 0.5rem));
+    bottom: calc(0.75rem + var(--octane-safe-bottom));
   }
 
   .has-mobile-simple-actions .octane-mobile-quick-search {
-    bottom: calc(3.85rem + env(safe-area-inset-bottom, 0px));
+    bottom: calc(3.85rem + var(--octane-safe-bottom));
   }
 
   .octane-mobile-simple-actions {
-    bottom: env(safe-area-inset-bottom, 0px);
-    min-height: 3.1rem;
+    /* Anchored to the physical edge: offsetting with `bottom` instead lifts the
+       bar's background too and the plots scroll through the gap. The inset is
+       absorbed as padding so the buttons still clear the home indicator, and
+       min-height keeps the bar's TOP edge where it was so the quick-search
+       offsets below stay correct. */
+    bottom: 0;
+    min-height: calc(3.1rem + var(--octane-safe-bottom));
+    padding-bottom: max(0.5rem, var(--octane-safe-bottom));
+    padding-left: max(0.5rem, calc(var(--octane-safe-side) + 0.35rem));
+    padding-right: max(0.5rem, calc(var(--octane-safe-side) + 0.35rem));
   }
 
   .octane-mobile-simple-button {
@@ -423,30 +477,32 @@
   }
 
   .octane-mobile-window-drawer {
-    bottom: calc(6.95rem + env(safe-area-inset-bottom, 0px));
+    left: max(0.75rem, calc(var(--octane-safe-side) + 0.5rem));
+    right: max(0.75rem, calc(var(--octane-safe-side) + 0.5rem));
+    bottom: calc(6.95rem + var(--octane-safe-bottom));
   }
 
   .mobile-matrix-mode main {
-    padding-top: calc(4.35rem + env(safe-area-inset-top, 0px));
-    padding-bottom: calc(7.4rem + env(safe-area-inset-bottom, 0px));
+    padding-top: calc(4.35rem + var(--octane-safe-top));
+    padding-bottom: calc(7.4rem + var(--octane-safe-bottom));
   }
 }
 
 @media (max-width: 1023px) and (orientation: portrait) {
   .mobile-analysis-mode .analysis-plot-shell {
-    padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(5rem + var(--octane-safe-bottom));
   }
 }
 
 @media (max-width: 1023px) and (orientation: landscape) {
   .mobile-matrix-mode .octane-app-header {
-    min-height: calc(2.75rem + env(safe-area-inset-top, 0px));
+    min-height: calc(2.75rem + var(--octane-safe-top));
     flex-wrap: nowrap;
     gap: 0.35rem;
-    padding-top: calc(0.35rem + env(safe-area-inset-top, 0px));
-    padding-right: max(0.5rem, calc(env(safe-area-inset-right, 0px) + 0.45rem));
+    padding-top: calc(0.35rem + var(--octane-safe-top));
+    padding-right: max(0.5rem, calc(var(--octane-safe-side) + 0.45rem));
     padding-bottom: 0.35rem;
-    padding-left: max(0.5rem, calc(env(safe-area-inset-left, 0px) + 0.45rem));
+    padding-left: max(0.5rem, calc(var(--octane-safe-side) + 0.45rem));
   }
 
   .mobile-matrix-mode .octane-app-header > div:last-child,
@@ -469,17 +525,17 @@
   }
 
   .mobile-matrix-mode main {
-    padding: calc(3.25rem + env(safe-area-inset-top, 0px)) max(0.5rem, calc(env(safe-area-inset-right, 0px) + 0.35rem)) calc(6.35rem + env(safe-area-inset-bottom, 0px)) max(0.5rem, calc(env(safe-area-inset-left, 0px) + 0.35rem));
+    padding: calc(3.25rem + var(--octane-safe-top)) max(0.5rem, calc(var(--octane-safe-side) + 0.35rem)) calc(6.35rem + var(--octane-safe-bottom)) max(0.5rem, calc(var(--octane-safe-side) + 0.35rem));
   }
 
   .mobile-analysis-mode .octane-app-header {
-    min-height: calc(2.75rem + env(safe-area-inset-top, 0px));
+    min-height: calc(2.75rem + var(--octane-safe-top));
     flex-wrap: nowrap;
     gap: 0.35rem;
-    padding-top: calc(0.35rem + env(safe-area-inset-top, 0px));
-    padding-right: max(0.5rem, calc(env(safe-area-inset-right, 0px) + 0.45rem));
+    padding-top: calc(0.35rem + var(--octane-safe-top));
+    padding-right: max(0.5rem, calc(var(--octane-safe-side) + 0.45rem));
     padding-bottom: 0.35rem;
-    padding-left: max(0.5rem, calc(env(safe-area-inset-left, 0px) + 0.45rem));
+    padding-left: max(0.5rem, calc(var(--octane-safe-side) + 0.45rem));
   }
 
   .mobile-analysis-mode .octane-app-header button {
@@ -491,7 +547,7 @@
   }
 
   .mobile-analysis-mode main {
-    padding: calc(3.25rem + env(safe-area-inset-top, 0px)) max(0.5rem, calc(env(safe-area-inset-right, 0px) + 0.35rem)) 0 max(0.5rem, calc(env(safe-area-inset-left, 0px) + 0.35rem));
+    padding: calc(3.25rem + var(--octane-safe-top)) max(0.5rem, calc(var(--octane-safe-side) + 0.35rem)) 0 max(0.5rem, calc(var(--octane-safe-side) + 0.35rem));
   }
 
   .mobile-analysis-mode .octane-analysis-plot {
@@ -523,15 +579,15 @@
   }
 
   .mobile-analysis-mode .octane-analysis-dock {
-    bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+    bottom: calc(0.5rem + var(--octane-safe-bottom));
     max-height: min(70dvh, 24rem);
   }
 
   .mobile-analysis-mode .octane-analysis-timeline {
     position: absolute;
-    left: max(0.5rem, calc(env(safe-area-inset-left, 0px) + 0.5rem));
-    right: max(0.5rem, calc(env(safe-area-inset-right, 0px) + 0.5rem));
-    bottom: max(0.35rem, calc(env(safe-area-inset-bottom, 0px) + 0.25rem));
+    left: max(0.5rem, calc(var(--octane-safe-side) + 0.5rem));
+    right: max(0.5rem, calc(var(--octane-safe-side) + 0.5rem));
+    bottom: max(0.35rem, calc(var(--octane-safe-bottom) + 0.25rem));
     z-index: 25;
     border: 1px solid var(--border);
     border-radius: 0.5rem;
@@ -568,22 +624,22 @@
   .octane-mobile-control-panel {
     gap: 0.5rem;
     padding-top: 0.5rem;
-    padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+    padding-bottom: 0.5rem;
   }
 
   .octane-mobile-quick-search {
-    bottom: calc(0.35rem + env(safe-area-inset-bottom, 0px));
+    bottom: calc(0.35rem + var(--octane-safe-bottom));
   }
 
   .has-mobile-simple-actions .octane-mobile-quick-search {
-    bottom: calc(3.2rem + env(safe-area-inset-bottom, 0px));
+    bottom: calc(3.2rem + var(--octane-safe-bottom));
   }
 
   .octane-mobile-simple-actions {
-    bottom: env(safe-area-inset-bottom, 0px);
-    min-height: 2.75rem;
+    bottom: 0;
+    min-height: calc(2.75rem + var(--octane-safe-bottom));
     padding-top: 0.3rem;
-    padding-bottom: max(0.3rem, env(safe-area-inset-bottom, 0px));
+    padding-bottom: max(0.3rem, var(--octane-safe-bottom));
   }
 
   .octane-mobile-simple-button {
@@ -592,7 +648,7 @@
   }
 
   .octane-mobile-window-drawer {
-    bottom: calc(5.85rem + env(safe-area-inset-bottom, 0px));
+    bottom: calc(5.85rem + var(--octane-safe-bottom));
   }
 }
 
@@ -625,16 +681,26 @@
 
   .mobile-analysis-mode .octane-analysis-plot > header {
     min-height: 2.35rem;
-    padding-top: max(0.25rem, calc(env(safe-area-inset-top, 0px) + 0.25rem));
-    padding-right: max(0.45rem, calc(env(safe-area-inset-right, 0px) + 0.45rem));
+    padding-top: max(0.25rem, calc(var(--octane-safe-top) + 0.25rem));
+    padding-right: max(0.45rem, calc(var(--octane-safe-side) + 0.45rem));
     padding-bottom: 0.25rem;
-    padding-left: max(0.45rem, calc(env(safe-area-inset-left, 0px) + 0.45rem));
+    padding-left: max(0.45rem, calc(var(--octane-safe-side) + 0.45rem));
+  }
+
+  /*
+   * The fullscreen landscape plot is edge-to-edge, so the plotting surface
+   * itself has to clear the island: the Y-axis tick labels are drawn along its
+   * left edge and would otherwise disappear behind the sensor housing.
+   */
+  .mobile-analysis-mode .octane-analysis-pane {
+    padding-left: max(0.5rem, var(--octane-safe-side));
+    padding-right: max(0.5rem, var(--octane-safe-side));
   }
 
   .mobile-analysis-mode .octane-pane-readout {
-    left: max(0.75rem, calc(env(safe-area-inset-left, 0px) + 0.75rem));
-    top: max(0.5rem, calc(env(safe-area-inset-top, 0px) + 0.5rem));
-    max-width: min(18rem, calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 1.5rem));
+    left: max(0.75rem, calc(var(--octane-safe-side) + 0.75rem));
+    top: max(0.5rem, calc(var(--octane-safe-top) + 0.5rem));
+    max-width: min(18rem, calc(100dvw - (var(--octane-safe-side) * 2) - 1.5rem));
   }
 
   .mobile-analysis-mode .octane-analysis-plot[data-panes="1"] .octane-analysis-pane {
@@ -643,15 +709,15 @@
 
   .mobile-analysis-mode .octane-analysis-dock {
     left: auto;
-    top: max(2.65rem, calc(env(safe-area-inset-top, 0px) + 2.65rem));
-    right: max(0.35rem, calc(env(safe-area-inset-right, 0px) + 0.35rem));
-    bottom: max(0.35rem, calc(env(safe-area-inset-bottom, 0px) + 0.35rem));
+    top: max(2.65rem, calc(var(--octane-safe-top) + 2.65rem));
+    right: max(0.35rem, calc(var(--octane-safe-side) + 0.35rem));
+    bottom: max(0.35rem, calc(var(--octane-safe-bottom) + 0.35rem));
     width: min(18rem, 46vw);
     max-height: none;
   }
 
   .mobile-analysis-mode .octane-analysis-timeline {
-    bottom: max(0.25rem, calc(env(safe-area-inset-bottom, 0px) + 0.25rem));
+    bottom: max(0.25rem, calc(var(--octane-safe-bottom) + 0.25rem));
   }
 }
 

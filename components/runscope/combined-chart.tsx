@@ -25,6 +25,7 @@ import { lttb } from "@/lib/downsample"
 import { cn } from "@/lib/utils"
 import { plotColor } from "@/lib/palette"
 import { matchesKey, useBindings } from "@/lib/keybindings"
+import { useMobileLandscapeTight, useMobileViewport } from "@/lib/viewport"
 import { colorForType, type Annotation } from "@/lib/annotations"
 import type { Template } from "@/lib/templates"
 import type { ChartSeries } from "./signal-chart"
@@ -314,8 +315,10 @@ function CombinedChartImpl({
   const [dockOpen, setDockOpen] = useState(true)
   const [fullscreen, setFullscreen] = useState(false)
   const [browserFullscreen, setBrowserFullscreen] = useState(false)
-  const [mobilePlot, setMobilePlot] = useState(true)
-  const [mobileLandscapeTight, setMobileLandscapeTight] = useState(false)
+  // Both mirror CSS media queries rather than window.innerWidth/innerHeight, so
+  // the rendered chrome always matches the stylesheet that positions it.
+  const mobilePlot = useMobileViewport(true)
+  const mobileLandscapeTight = useMobileLandscapeTight()
   const [mobileAutoFullscreen, setMobileAutoFullscreen] = useState(false)
   const [mobileAutoSuppressed, setMobileAutoSuppressed] = useState(false)
   const [analysisTab, setAnalysisTab] = useState<AnalysisTab>("standard")
@@ -331,30 +334,11 @@ function CombinedChartImpl({
   const searchRef = useRef<HTMLInputElement>(null)
   const bindings = useBindings()
 
+  // The channel dock is a side panel on desktop and an overlay sheet on phones,
+  // so it follows the breakpoint instead of owning a second copy of it.
   useEffect(() => {
-    const media = window.matchMedia("(max-width: 1023px)")
-    const syncDock = () => setDockOpen(!media.matches)
-    syncDock()
-    media.addEventListener("change", syncDock)
-    return () => media.removeEventListener("change", syncDock)
-  }, [])
-
-  useEffect(() => {
-    const syncViewport = () => {
-      const width = window.innerWidth
-      const height = window.innerHeight
-      const mobile = width <= 1023
-      setMobilePlot(mobile)
-      setMobileLandscapeTight(mobile && width > height && height <= 540)
-    }
-    syncViewport()
-    window.addEventListener("resize", syncViewport)
-    window.addEventListener("orientationchange", syncViewport)
-    return () => {
-      window.removeEventListener("resize", syncViewport)
-      window.removeEventListener("orientationchange", syncViewport)
-    }
-  }, [])
+    setDockOpen(!mobilePlot)
+  }, [mobilePlot])
 
   useEffect(() => {
     const doc = document as FullscreenDocument

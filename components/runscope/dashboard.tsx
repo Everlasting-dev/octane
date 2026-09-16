@@ -42,6 +42,7 @@ import {
 } from "@/lib/templates"
 import { useShortcuts, type Shortcut } from "@/hooks/use-shortcuts"
 import { useBindings } from "@/lib/keybindings"
+import { isMobileViewportNow, useMobileViewport } from "@/lib/viewport"
 import { Rail, type ViewMode } from "./rail"
 import { ControlPanel, type ChannelItem } from "./control-panel"
 import { CombinedChart, type PaneGroup, type Transform } from "./combined-chart"
@@ -528,10 +529,6 @@ const MOBILE_MATRIX_DEFAULT_CHANNELS: { label: string; match: RegExp[] }[] = [
   { label: "Wheel speed rear", match: [/wheel.*speed.*rear/i, /rear.*wheel/i] },
 ]
 
-function isMobileViewportNow(): boolean {
-  return typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches
-}
-
 function setsEqual<T>(a: Set<T>, b: Set<T>): boolean {
   if (a.size !== b.size) return false
   for (const item of a) if (!b.has(item)) return false
@@ -671,7 +668,7 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
 
   const [sync, setSync] = useState(true)
   const [view, setView] = useState<ViewMode>("matrix")
-  const [mobileViewport, setMobileViewport] = useState(false)
+  const mobileViewport = useMobileViewport()
   const [activePresetId, setActivePresetId] = useState(CHANNEL_PRESETS[0].id)
   const [channelPresets, setChannelPresets] = useState<ChannelPreset[]>(() => cloneChannelPresets())
   const [channelsPaneOpen, setChannelsPaneOpen] = useState(true)
@@ -708,13 +705,6 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
     if (!channelPresets.length) return
     if (!channelPresets.some((preset) => preset.id === activePresetId)) setActivePresetId(channelPresets[0].id)
   }, [activePresetId, channelPresets])
-  useEffect(() => {
-    const media = window.matchMedia("(max-width: 1023px)")
-    const syncViewport = () => setMobileViewport(media.matches)
-    syncViewport()
-    media.addEventListener("change", syncViewport)
-    return () => media.removeEventListener("change", syncViewport)
-  }, [])
   useEffect(() => {
     if (mobileViewport && view !== "matrix" && view !== "plot") setView("plot")
   }, [mobileViewport, view])
@@ -1434,7 +1424,7 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
   return (
     <div
       className={cn(
-        "flex h-dvh overflow-hidden bg-background text-foreground",
+        "isolate flex h-dvh overflow-hidden bg-background text-foreground",
         (view === "plot" || view === "channels") && "mobile-analysis-mode",
         view === "matrix" && "mobile-matrix-mode",
         hasLogs && view === "matrix" && "has-mobile-simple-actions",

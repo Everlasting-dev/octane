@@ -2,6 +2,29 @@
 
 All notable changes to Octane are documented here.
 
+Octane shipped a 1.0.x series before moving back to a pre-1.0 development
+track. Those releases were withdrawn: `v1.0.0` through `v1.0.6` are no longer
+published as GitHub releases or tags, and the only public release is the
+current `0.9.x` line. Their entries are kept below for history and are marked
+accordingly. Version numbers therefore decrease part-way down this file.
+
+## v0.9.4 - 2026-09-16
+
+### Fixed
+
+- Fixed mobile layout desyncing from its own stylesheet on iOS: viewport detection read `window.innerWidth`/`innerHeight`, which follow the visual viewport and shrink as Safari's toolbars slide in, while the CSS evaluated `max-height` against the large viewport. On a landscape iPhone the two straddled the 540px fullscreen threshold, so the app could drop the header while the CSS still reserved room for it. Both now subscribe to the same media queries.
+- Fixed mobile landscape chrome sitting under the camera island: horizontal gutters used whichever of `safe-area-inset-left`/`right` matched the side the sensor housing was reported on, so rotating the phone the other way put the island over the unpadded edge. Mobile gutters now use the larger of the two insets and clear the island on both rotations.
+- Added the missing left/right safe-area spacing to the Signal Matrix quick search bar, the `Sync`/`Window`/`Reset`/`Fit` action bar, the `Window` drawer, the Controls sheet, and the Analysis channel dock, all of which sat on the raw screen edge.
+- Fixed Y-axis tick labels disappearing behind the camera island in the fullscreen landscape plot by insetting the plotting surface itself.
+- Fixed the Signal Matrix bottom action bar floating above the bottom of the screen with the plot list scrolling visibly through the gap underneath. The bar was offset with `bottom`, which lifts its background off the physical edge as well; it now stays anchored at the edge and absorbs the inset as padding, so the background covers the home-indicator strip and the buttons sit above it.
+- Fixed the Controls panel adding the bottom inset on top of the one its containing sheet already applies, which left an oversized gap above the home indicator.
+- Fixed the Dashboard's fixed chrome painting through the landing page. The mobile header (`z-index: 60`), the fullscreen landscape plot shell (`45`) and the Controls sheet (`90`) all outranked the landing overlay (`z-40`), so the dashboard's blurred header showed over the top of the landing page and left its wordmark and the Controls icon half covered. The Dashboard now forms its own stacking context, so its internal z-indexes can no longer outrank app-level overlays.
+- Added the missing safe-area spacing to the landing and login screens, which previously had none at all.
+
+### Changed
+
+- Moved the safe-area insets into `--octane-safe-*` custom properties and the mobile breakpoints into `lib/viewport.ts`, so the stylesheet and the components no longer keep separate copies of either.
+
 ## v0.9.3 - 2026-09-16
 
 ### Fixed
@@ -9,6 +32,10 @@ All notable changes to Octane are documented here.
 - Restored the compact mobile top toolbar icon design while keeping iPhone safe-area spacing.
 - Added landscape safe-area spacing for the mobile Analysis ghost readout so it avoids the iPhone camera island.
 - Added left/right/bottom safe-area spacing for the mobile Analysis timeline, channel sheet, and fullscreen plot header.
+
+### Removed
+
+- Removed the withdrawn `v1.0.0` through `v1.0.6` public releases and tags, leaving `0.9.3` as the only published release.
 
 ## v0.9.2 - 2026-09-16
 
@@ -159,7 +186,9 @@ Development-channel update. Octane remains pre-1.0 while the desktop installer, 
 - LAN testing is served with `npm run serve:mobile`, which binds to `0.0.0.0` and prints the local phone URL.
 - Current mobile workflow is optimized around Signal Matrix, bottom quick search, a single Analysis Plot, six-line Analysis selection, searchable channel toggles, timeline adjustment, smooth touch scrubbing, transparent ghost cursor values, scrollable controls, and scrollable settings.
 
-## v1.0.6
+## v1.0.6 - 2026-07-23 (withdrawn)
+
+Superseded by the `0.9.x` development track; no longer published.
 
 ### Added
 
@@ -172,7 +201,9 @@ Development-channel update. Octane remains pre-1.0 while the desktop installer, 
 - Keyboard shortcuts and remappable key bindings.
 - Windows packaging through electron-builder.
 
-## v1.0.0
+## v1.0.0 - 2026-06-27 (withdrawn)
+
+Superseded by the `0.9.x` development track; no longer published.
 
 ### Added
 

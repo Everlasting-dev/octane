@@ -50,7 +50,7 @@ export function LoginScreen({ onSuccess, initialError = null }: { onSuccess: (st
   }
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-6 text-foreground sm:px-6">
+    <div className="octane-safe-inline flex min-h-dvh items-center justify-center bg-background px-4 py-6 text-foreground sm:px-6">
       <div className="grid w-full max-w-5xl gap-5 lg:grid-cols-[minmax(20rem,24rem)_1fr]">
         <div>
         <div className="mb-6 flex flex-col items-center gap-3 text-center lg:items-start lg:text-left">
