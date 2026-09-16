@@ -249,15 +249,51 @@
     position: fixed;
     inset: 0 0 auto;
     z-index: 60;
-    min-height: calc(3.25rem + env(safe-area-inset-top, 0px));
-    padding-top: max(0.55rem, env(safe-area-inset-top, 0px));
-    padding-bottom: 0.45rem;
+    min-height: calc(4rem + env(safe-area-inset-top, 0px));
+    padding: calc(0.65rem + env(safe-area-inset-top, 0px)) 0.75rem 0.65rem;
     box-shadow: 0 12px 28px rgb(0 0 0 / 42%);
+  }
+
+  .mobile-matrix-mode .octane-header-identity,
+  .mobile-analysis-mode .octane-header-identity {
+    display: none;
+  }
+
+  .mobile-matrix-mode .octane-app-header > div:last-child,
+  .mobile-analysis-mode .octane-app-header > div:last-child {
+    display: grid;
+    width: 100%;
+    grid-template-columns: minmax(7.25rem, 0.72fr) minmax(0, 1fr);
+    gap: 0.5rem;
+    margin-left: 0;
+  }
+
+  .octane-mobile-controls-trigger {
+    width: 100%;
+    height: 2.7rem;
+    font-size: 0.86rem;
+    font-weight: 800;
+    color: var(--foreground);
+  }
+
+  .octane-mobile-view-toggle {
+    width: 100%;
+    max-width: none;
+    height: 2.7rem;
+    align-items: center;
+    justify-content: stretch;
+    border-radius: 0.75rem;
+  }
+
+  .octane-mobile-view-toggle button {
+    flex: 1 1 0;
+    height: 2.3rem;
+    font-size: 0.84rem;
   }
 
   .mobile-matrix-mode [id^="chart-"],
   .mobile-analysis-mode [id^="chart-"] {
-    scroll-margin-top: calc(4.25rem + env(safe-area-inset-top, 0px));
+    scroll-margin-top: calc(5rem + env(safe-area-inset-top, 0px));
   }
 
   .mobile-matrix-mode input,
@@ -283,18 +319,6 @@
   .mobile-matrix-mode .analysis-loaded-files,
   .mobile-matrix-mode .analysis-heading {
     display: none;
-  }
-
-  .mobile-matrix-mode main {
-    padding-top: calc(4.45rem + env(safe-area-inset-top, 0px));
-  }
-
-  .octane-mobile-view-toggle {
-    max-width: min(14rem, 48vw);
-  }
-
-  .octane-mobile-view-toggle button {
-    min-width: 0;
   }
 
   .octane-mobile-view-toggle span {
@@ -334,7 +358,7 @@
   }
 
   .mobile-analysis-mode main {
-    padding-top: calc(4.45rem + env(safe-area-inset-top, 0px));
+    padding-top: calc(5.2rem + env(safe-area-inset-top, 0px));
   }
 
   .mobile-analysis-mode .analysis-heading {
@@ -359,7 +383,15 @@
   }
 
   .octane-mobile-controls-sheet {
-    max-height: calc(100dvh - 0.5rem);
+    inset: 0 !important;
+    max-height: 100dvh;
+    border-radius: 0;
+    border-top: 0;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  .octane-mobile-controls-sheet > div:first-child {
+    min-height: 3.35rem;
   }
 
   .octane-mobile-quick-search {
@@ -402,6 +434,7 @@
   }
 
   .mobile-matrix-mode main {
+    padding-top: calc(5.2rem + env(safe-area-inset-top, 0px));
     padding-bottom: calc(7.4rem + env(safe-area-inset-bottom, 0px));
   }
 }
@@ -414,49 +447,37 @@
 
 @media (max-width: 1023px) and (orientation: landscape) {
   .mobile-matrix-mode .octane-app-header {
-    min-height: calc(2.6rem + env(safe-area-inset-top, 0px));
+    min-height: calc(3.05rem + env(safe-area-inset-top, 0px));
     flex-wrap: nowrap;
     gap: 0.35rem;
-    padding: max(0.25rem, env(safe-area-inset-top, 0px)) 0.5rem 0.25rem;
+    padding: calc(0.35rem + env(safe-area-inset-top, 0px)) 0.5rem 0.35rem;
   }
 
-  .mobile-matrix-mode .octane-app-title {
-    font-size: 0.78rem;
+  .mobile-matrix-mode .octane-app-header > div:last-child,
+  .mobile-analysis-mode .octane-app-header > div:last-child {
+    grid-template-columns: minmax(6.75rem, 0.64fr) minmax(0, 1fr);
+    gap: 0.35rem;
   }
 
-  .mobile-matrix-mode .octane-app-meta,
-  .mobile-matrix-mode .octane-action-label {
-    display: none !important;
+  .octane-mobile-controls-trigger,
+  .octane-mobile-view-toggle {
+    height: 2.25rem;
   }
 
-  .mobile-matrix-mode .octane-mobile-view-toggle,
-  .mobile-analysis-mode .octane-mobile-view-toggle {
-    max-width: none;
-  }
-
-  .mobile-matrix-mode .octane-mobile-view-toggle span,
-  .mobile-analysis-mode .octane-mobile-view-toggle span {
-    display: none;
+  .octane-mobile-view-toggle button {
+    height: 1.9rem;
+    font-size: 0.75rem;
   }
 
   .mobile-matrix-mode main {
-    padding: calc(3.05rem + env(safe-area-inset-top, 0px)) 0.5rem calc(6.35rem + env(safe-area-inset-bottom, 0px));
+    padding: calc(3.7rem + env(safe-area-inset-top, 0px)) 0.5rem calc(6.35rem + env(safe-area-inset-bottom, 0px));
   }
 
   .mobile-analysis-mode .octane-app-header {
-    min-height: calc(2.6rem + env(safe-area-inset-top, 0px));
+    min-height: calc(3.05rem + env(safe-area-inset-top, 0px));
     flex-wrap: nowrap;
     gap: 0.35rem;
-    padding: max(0.25rem, env(safe-area-inset-top, 0px)) 0.5rem 0.25rem;
-  }
-
-  .mobile-analysis-mode .octane-app-title {
-    font-size: 0.78rem;
-  }
-
-  .mobile-analysis-mode .octane-app-meta,
-  .mobile-analysis-mode .octane-action-label {
-    display: none !important;
+    padding: calc(0.35rem + env(safe-area-inset-top, 0px)) 0.5rem 0.35rem;
   }
 
   .mobile-analysis-mode .octane-app-header button {
@@ -468,7 +489,7 @@
   }
 
   .mobile-analysis-mode main {
-    padding: calc(3rem + env(safe-area-inset-top, 0px)) 0.5rem 0;
+    padding: calc(3.65rem + env(safe-area-inset-top, 0px)) 0.5rem 0;
   }
 
   .mobile-analysis-mode .octane-analysis-plot {

@@ -2,6 +2,14 @@
 
 All notable changes to Octane are documented here.
 
+## v0.9.2 - 2026-09-16
+
+### Fixed
+
+- Enlarged the loaded-log mobile top toolbar so `Controls`, `Matrix`, and `Analysis` are easier to tap.
+- Changed the mobile Controls sheet into a true top-layer panel so its close button is no longer hidden behind the app toolbar.
+- Added a text `Close` action to the mobile Controls sheet header.
+
 ## v0.9.1 - 2026-09-16
 
 ### Fixed

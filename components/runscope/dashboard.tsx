@@ -1453,7 +1453,7 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Single top bar */}
         <header className="octane-app-header sticky top-0 z-20 flex min-h-14 flex-wrap items-center gap-2 border-b border-border bg-background/85 px-3 py-2 backdrop-blur sm:flex-nowrap sm:gap-4 sm:px-5 sm:py-0">
-          <div className="min-w-0 flex-1">
+          <div className="octane-header-identity min-w-0 flex-1">
             <h1 className="octane-app-title truncate text-sm font-semibold tracking-tight">
               {activeLog ? activeLog.fileName : "Octane"}
             </h1>
@@ -1471,9 +1471,10 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
                 onClick={() => setMobileControlsOpen(true)}
                 title="Open controls"
                 aria-label="Open controls"
-                className="inline-flex size-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground lg:hidden"
+                className="octane-mobile-controls-trigger inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-border bg-card px-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground lg:hidden"
               >
                 <SlidersHorizontal className="size-4" />
+                <span>Controls</span>
               </button>
             )}
             {hasLogs && (
@@ -2124,7 +2125,7 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
         </div>
       )}
       {hasLogs && mobileControlsOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Signal controls">
+        <div className="fixed inset-0 z-[90] lg:hidden" role="dialog" aria-modal="true" aria-label="Signal controls">
           <button
             type="button"
             aria-label="Close controls"
@@ -2138,9 +2139,10 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
                 type="button"
                 onClick={() => setMobileControlsOpen(false)}
                 aria-label="Close controls"
-                className="inline-flex size-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-border bg-card px-3 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
               >
                 <X className="size-4" />
+                Close
               </button>
             </div>
             <div className="grid shrink-0 grid-cols-2 gap-2 border-b border-border p-3">
