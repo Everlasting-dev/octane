@@ -13,6 +13,7 @@ accordingly. Version numbers therefore decrease part-way down this file.
 ### Added
 
 - Published a Windows installer, `Octane-Setup-0.9.4.exe`, with the Octane license bundled beside the app and attached to the GitHub release.
+- Added a one-line installer command that downloads the latest setup, installs it silently, and deletes the downloaded setup files.
 
 ### Fixed
 
