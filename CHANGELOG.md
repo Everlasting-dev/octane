@@ -10,6 +10,10 @@ accordingly. Version numbers therefore decrease part-way down this file.
 
 ## v0.9.4 - 2026-09-16
 
+### Added
+
+- Published a Windows installer, `Octane-Setup-0.9.4.exe`, with the Octane license bundled beside the app and attached to the GitHub release.
+
 ### Fixed
 
 - Fixed mobile layout desyncing from its own stylesheet on iOS: viewport detection read `window.innerWidth`/`innerHeight`, which follow the visual viewport and shrink as Safari's toolbars slide in, while the CSS evaluated `max-height` against the large viewport. On a landscape iPhone the two straddled the 540px fullscreen threshold, so the app could drop the header while the CSS still reserved room for it. Both now subscribe to the same media queries.
