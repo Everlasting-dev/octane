@@ -113,3 +113,45 @@ export function friendlyFileError(error: unknown, fileName?: string): FriendlyEr
 
   return withDetails("Could not open log", `Octane could not open${target}. Check the file and try again.`, raw)
 }
+
+export function friendlyCloudLogError(error: unknown): FriendlyError {
+  const raw = errorDetails(error)
+  const lower = raw.toLowerCase()
+
+  if (!raw.trim()) {
+    return {
+      title: "Cloud Logs unavailable",
+      message: "Octane could not finish that cloud log action. Try again in a moment.",
+    }
+  }
+
+  if (/admin account|only enabled|not authorized|unauthorized|forbidden|\b401\b|\b403\b|rls|row-level/.test(lower)) {
+    return withDetails("Admin access required", "Cloud Logs are restricted to the Octane admin account.", raw)
+  }
+
+  if (/sign in|session|refresh|jwt|token|expired/.test(lower)) {
+    return withDetails("Cloud session expired", "Sign in to Octane again, then retry the cloud log action.", raw)
+  }
+
+  if (/cloud_logs|schema cache|relation|table|bucket|octane-logs|does not exist|not found|\b404\b/.test(lower)) {
+    return withDetails("Cloud library not set up", "Create the Octane cloud log table and private storage bucket in Supabase, then try again.", raw)
+  }
+
+  if (/already saved|duplicate|asset already exists|23505/.test(lower)) {
+    return withDetails("Already saved", "This log already exists in the cloud library.", raw)
+  }
+
+  if (/original file text|no original|no file text/.test(lower)) {
+    return withDetails("Original log unavailable", "Reopen the original CSV/TXT log before uploading it to the cloud library.", raw)
+  }
+
+  if (/network|fetch failed|cannot reach|offline|internet|econn|enotfound|etimedout|timeout|supabase/.test(lower)) {
+    return withDetails("Connection problem", "Octane could not reach the cloud log library. Check the connection and try again.", raw)
+  }
+
+  if (/download|gzip|incorrect header|invalid stored block|decompress/.test(lower)) {
+    return withDetails("Cloud log could not load", "Octane could not download or unpack this cloud log. Try another log or upload it again.", raw)
+  }
+
+  return withDetails("Cloud Logs error", "Octane could not complete that cloud log action. Try again, or check the details below.", raw)
+}

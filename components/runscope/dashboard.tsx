@@ -4,6 +4,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import {
   ChevronLeft,
   ChevronRight,
+  Cloud,
   Download,
   HelpCircle,
   Keyboard,
@@ -61,9 +62,12 @@ import { MetadataModal } from "./metadata-modal"
 import { ShortcutsModal } from "./shortcuts-modal"
 import { AnnotationDialog, type AnnotationDraft } from "./annotation-dialog"
 import { LicenseBadge } from "./license-badge"
+import { CloudLogsDialog } from "./cloud-logs-dialog"
 import { cn } from "@/lib/utils"
 import { plotColor } from "@/lib/palette"
 import { friendlyFileError } from "@/lib/friendly-errors"
+import { isCloudLogAdmin } from "@/lib/cloud-logs"
+import type { AuthUser } from "@/lib/auth"
 
 const MIN_ZOOM = 100
 const MAX_ZOOM = 800
@@ -661,8 +665,11 @@ export interface DashboardHandle {
   loadParsedLog: (log: ParsedLog) => void
 }
 
-export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | null; onHome?: () => void; accountEmail?: string | null }>(
-  function Dashboard({ initialLog = null, onHome, accountEmail = null }, ref) {
+export const Dashboard = forwardRef<
+  DashboardHandle,
+  { initialLog?: ParsedLog | null; onHome?: () => void; accountUser?: AuthUser | null; accountEmail?: string | null }
+>(
+  function Dashboard({ initialLog = null, onHome, accountUser = null, accountEmail = null }, ref) {
   const [logs, setLogs] = useState<ParsedLog[]>(initialLog ? [initialLog] : [])
   const [activeIndex, setActiveIndex] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -733,6 +740,7 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showMetadata, setShowMetadata] = useState(false)
+  const [showCloudLogs, setShowCloudLogs] = useState(false)
   const [quickOpen, setQuickOpen] = useState(false)
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false)
   const [mobileWindowOpen, setMobileWindowOpen] = useState(false)
@@ -747,6 +755,8 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
   const bindings = useBindings()
 
   const hasLogs = logs.length > 0
+  const displayEmail = accountUser?.email ?? accountEmail
+  const canUseCloudLogs = isCloudLogAdmin(displayEmail)
   const canCompare = logs.length > 1
   const comparing = view === "compare" && canCompare
   const activeLog = logs[activeIndex] ?? logs[0]
@@ -945,6 +955,11 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
     applyDefaults(parsed)
   }
   useImperativeHandle(ref, () => ({ loadParsedLog }))
+
+  function loadCloudParsedLog(parsed: ParsedLog) {
+    loadParsedLog(parsed)
+    setShowCloudLogs(false)
+  }
 
   function loadSample() {
     setLogs([SAMPLE_LOG])
@@ -1540,8 +1555,25 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
               <Keyboard className="size-4" />
             </button>
             <span className="hidden lg:inline-flex">
-              <LicenseBadge email={accountEmail} compact />
+              <LicenseBadge
+                email={displayEmail}
+                firstLoginAt={accountUser?.firstLoginAt}
+                expiresAt={accountUser?.licenseExpiresAt}
+                compact
+              />
             </span>
+            {canUseCloudLogs && (
+              <button
+                type="button"
+                onClick={() => setShowCloudLogs(true)}
+                title="Cloud Logs"
+                aria-label="Cloud Logs"
+                className="hidden items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-secondary lg:inline-flex"
+              >
+                <Cloud className="size-3.5" />
+                <span className="octane-action-label hidden xl:inline">Cloud Logs</span>
+              </button>
+            )}
             {hasLogs && (
               <div className="octane-mobile-view-toggle inline-flex items-center rounded-md border border-border bg-card p-0.5 lg:hidden" aria-label="Mobile view switcher">
                 <button
@@ -1575,21 +1607,23 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
             <button
               type="button"
               onClick={() => openCsvDialog(loadFile)}
-              aria-label="Import CSV"
+              title="Add another local CSV/TXT log"
+              aria-label="Add local CSV"
               className="hidden items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-secondary lg:inline-flex"
             >
               <Upload className="size-3.5" />
-              <span className="octane-action-label hidden sm:inline">Import CSV</span>
+              <span className="octane-action-label hidden sm:inline">Add CSV</span>
             </button>
             {hasLogs && (
               <button
                 type="button"
                 onClick={exportCsv}
-                aria-label="Export CSV"
+                title="Export only the currently visible channels"
+                aria-label="Export visible channels"
                 className="hidden items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-secondary lg:inline-flex"
               >
                 <Download className="size-3.5" />
-                <span className="octane-action-label hidden sm:inline">Export</span>
+                <span className="octane-action-label hidden sm:inline">Export visible</span>
               </button>
             )}
           </div>
@@ -2051,6 +2085,12 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
         onClose={() => setShowSettings(false)}
       />
       <MetadataModal open={showMetadata} log={activeLog ?? null} onClose={() => setShowMetadata(false)} />
+      <CloudLogsDialog
+        open={showCloudLogs}
+        activeLog={activeLog ?? null}
+        onClose={() => setShowCloudLogs(false)}
+        onLoad={loadCloudParsedLog}
+      />
       <ChannelsHelpDialog open={channelsHelpOpen} onClose={() => setChannelsHelpOpen(false)} />
       <ChannelsPresetEditor
         open={channelsEditOpen}

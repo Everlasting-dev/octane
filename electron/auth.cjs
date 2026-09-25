@@ -9,6 +9,7 @@ const path = require("node:path")
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://hgwmdowavadfbctlypin.supabase.co"
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "sb_publishable_wRhD8AZtNhOAXSv3k_f7Cg_5rzE11zp"
 const AUTH_GRACE_MS = 7 * 24 * 60 * 60 * 1000 // 7 days offline grace
+const LICENSE_MS = 30 * 24 * 60 * 60 * 1000
 
 function sessionPath() {
   return path.join(app.getPath("userData"), "auth-session.dat")
@@ -77,16 +78,52 @@ async function supabaseAuthRequest(pathname, options = {}) {
   return data
 }
 
-function buildEnvelope(session, source = "login") {
+function sameUser(previous, nextUser) {
+  if (!previous?.user || !nextUser) return false
+  const prevEmail = String(previous.user.email || "").toLowerCase()
+  const nextEmail = String(nextUser.email || "").toLowerCase()
+  return (!!previous.user.id && previous.user.id === nextUser.id) || (!!prevEmail && prevEmail === nextEmail)
+}
+
+function addLicenseWindow(user, previous, now) {
+  const keepExisting = sameUser(previous, user)
+  const firstLoginAt =
+    keepExisting && typeof previous.user.firstLoginAt === "number"
+      ? previous.user.firstLoginAt
+      : now
+  const licenseExpiresAt =
+    keepExisting && typeof previous.user.licenseExpiresAt === "number"
+      ? previous.user.licenseExpiresAt
+      : firstLoginAt + LICENSE_MS
+  return { firstLoginAt, licenseExpiresAt }
+}
+
+function buildEnvelope(session, source = "login", previous = null) {
   const now = Date.now()
   const user = session.user || {}
+  const nextUser = { id: user.id || "", email: user.email || "", role: user.role || "" }
+  const license = addLicenseWindow(nextUser, previous, now)
   return {
     accessToken: session.access_token,
     refreshToken: session.refresh_token,
     expiresAt: session.expires_at ? session.expires_at * 1000 : now + Number(session.expires_in || 3600) * 1000,
     lastValidatedAt: now,
     source,
-    user: { id: user.id || "", email: user.email || "", role: user.role || "" },
+    user: { ...nextUser, ...license },
+  }
+}
+
+function ensureLicenseWindow(env) {
+  if (!env?.user) return env
+  if (typeof env.user.firstLoginAt === "number" && typeof env.user.licenseExpiresAt === "number") return env
+  const firstLoginAt = Number(env.lastValidatedAt || Date.now())
+  return {
+    ...env,
+    user: {
+      ...env.user,
+      firstLoginAt,
+      licenseExpiresAt: firstLoginAt + LICENSE_MS,
+    },
   }
 }
 
@@ -100,14 +137,16 @@ async function refresh(env) {
     method: "POST",
     body: JSON.stringify({ refresh_token: env.refreshToken }),
   })
-  const next = buildEnvelope(data, "refresh")
+  const next = buildEnvelope(data, "refresh", ensureLicenseWindow(env))
   await writeSession(next)
   return next
 }
 
 async function getState() {
-  const saved = await readSession()
+  const raw = await readSession()
+  const saved = ensureLicenseWindow(raw)
   if (!saved?.accessToken) return { authenticated: false }
+  if (saved !== raw) await writeSession(saved)
   if (Number(saved.expiresAt || 0) > Date.now() + 5 * 60 * 1000) {
     return { authenticated: true, user: saved.user }
   }
@@ -125,11 +164,12 @@ async function getState() {
 
 async function login({ email, password }) {
   if (!email || !password) throw new Error("Email and password are required.")
+  const previous = ensureLicenseWindow(await readSession())
   const data = await supabaseAuthRequest("/auth/v1/token?grant_type=password", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   })
-  const env = buildEnvelope(data, "login")
+  const env = buildEnvelope(data, "login", previous)
   await writeSession(env)
   return { authenticated: true, user: env.user }
 }
@@ -140,8 +180,10 @@ async function logout() {
 }
 
 async function getAccessToken() {
-  const saved = await readSession()
+  const raw = await readSession()
+  const saved = ensureLicenseWindow(raw)
   if (!saved?.accessToken) return null
+  if (saved !== raw) await writeSession(saved)
   if (Number(saved.expiresAt || 0) <= Date.now() + 60 * 1000) {
     try {
       return (await refresh(saved)).accessToken

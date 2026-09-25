@@ -8,6 +8,21 @@ published as GitHub releases or tags, and the only public release is the
 current `0.9.x` line. Their entries are kept below for history and are marked
 accordingly. Version numbers therefore decrease part-way down this file.
 
+## v0.9.6 - 2026-09-25
+
+### Added
+
+- Added a PC-only admin Cloud Logs library backed by Supabase metadata and private Storage objects.
+- Added cloud-log upload with custom names and comments, gzip compression, duplicate detection, and local desktop caching.
+- Added cloud-log load/edit/delete actions with Octane-themed dialogs and friendly cloud-specific error messages.
+- Added `supabase/cloud-logs.sql` for the admin-only table, bucket, and RLS policies.
+
+### Changed
+
+- Changed the PC toolbar wording from `Import CSV` to `Add CSV`, and from `Export` to `Export visible`, clarifying that export writes the currently visible channels rather than the original log.
+- Updated Cloud Logs copy and buttons to show that lists are metadata-only and uncached logs download only when explicitly selected.
+- Moved the 30-day subscription timer anchor into the encrypted desktop auth session and made the license badge refresh while the app is open.
+
 ## v0.9.5 - 2026-09-25
 
 ### Added

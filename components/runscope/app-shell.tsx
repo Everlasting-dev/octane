@@ -201,7 +201,15 @@ export function AppShell() {
   return (
     <ErrorBoundary>
       <Suspense fallback={<CenteredLoader />}>
-        {inAnalysis && <Dashboard ref={dashRef} initialLog={initialLog} accountEmail={authUser?.email ?? null} onHome={() => setShowLandingOverlay(true)} />}
+        {inAnalysis && (
+          <Dashboard
+            ref={dashRef}
+            initialLog={initialLog}
+            accountUser={authUser}
+            accountEmail={authUser?.email ?? null}
+            onHome={() => setShowLandingOverlay(true)}
+          />
+        )}
       </Suspense>
       {showLanding && (
         <div className="octane-landing-overlay fixed inset-0 z-40 overflow-auto bg-background">
@@ -209,6 +217,7 @@ export function AppShell() {
             onOpen={openLog}
             canResume={inAnalysis}
             onResume={() => setShowLandingOverlay(false)}
+            accountUser={authUser}
             accountEmail={authUser?.email ?? null}
             onLogout={() => void signOut()}
           />

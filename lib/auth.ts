@@ -5,6 +5,8 @@ export interface AuthUser {
   id: string
   email: string
   role?: string
+  firstLoginAt?: number
+  licenseExpiresAt?: number
 }
 
 export interface AuthState {

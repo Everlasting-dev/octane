@@ -20,6 +20,8 @@ export interface ParsedLog {
   sizeLabel: string
   samples: number
   duration: number
+  sourceText?: string
+  sourceByteSize?: number
   /** true when no Time column was found and the x-axis is a sample index */
   indexed: boolean
   signals: Signal[]
@@ -218,6 +220,8 @@ export function parseLog(text: string, fileName: string, byteSize: number): Pars
     sizeLabel: sizeLabel(byteSize),
     samples: rowCount,
     duration: duration > 0 ? duration : rowCount,
+    sourceText: text,
+    sourceByteSize: byteSize,
     indexed,
     signals,
     meta,

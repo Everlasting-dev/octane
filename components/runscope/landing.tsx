@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import { friendlyFileError } from "@/lib/friendly-errors"
 import { OctaneLogo } from "./logo"
 import { LicenseBadge } from "./license-badge"
+import type { AuthUser } from "@/lib/auth"
 
 const FEATURES = [
   { icon: LayoutList, title: "Channel views", text: "Move between Signal Matrix, Analysis, and preset diagnostics without changing tools." },
@@ -20,18 +21,21 @@ export function Landing({
   canResume,
   onResume,
   accountEmail,
+  accountUser,
   onLogout,
 }: {
   onOpen: (log: ParsedLog | null) => void
   canResume?: boolean
   onResume?: () => void
   accountEmail?: string | null
+  accountUser?: AuthUser | null
   onLogout?: () => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const displayEmail = accountUser?.email ?? accountEmail
 
   async function handleFile(file: File) {
     setLoading(true)
@@ -53,12 +57,17 @@ export function Landing({
           <OctaneLogo className="size-5" />
         </span>
         <span className="text-sm font-semibold tracking-tight">Octane</span>
-        {accountEmail && (
+        {displayEmail && (
           <div className="ml-auto hidden items-center gap-2 sm:flex">
-            <span className="max-w-[16rem] truncate rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground" title={accountEmail}>
-              Signed in as <span className="text-foreground">{accountEmail}</span>
+            <span className="max-w-[16rem] truncate rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground" title={displayEmail}>
+              Signed in as <span className="text-foreground">{displayEmail}</span>
             </span>
-            <LicenseBadge email={accountEmail} compact />
+            <LicenseBadge
+              email={displayEmail}
+              firstLoginAt={accountUser?.firstLoginAt}
+              expiresAt={accountUser?.licenseExpiresAt}
+              compact
+            />
           </div>
         )}
         {canResume && (

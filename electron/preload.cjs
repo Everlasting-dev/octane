@@ -12,6 +12,13 @@ contextBridge.exposeInMainWorld("octane", {
     logout: () => ipcRenderer.invoke("auth:logout"),
     getAccessToken: () => ipcRenderer.invoke("auth:get-access-token"),
   },
+  cloudLogs: {
+    list: () => ipcRenderer.invoke("cloud-logs:list"),
+    upload: (payload) => ipcRenderer.invoke("cloud-logs:upload", payload),
+    update: (payload) => ipcRenderer.invoke("cloud-logs:update", payload),
+    delete: (id) => ipcRenderer.invoke("cloud-logs:delete", id),
+    download: (id) => ipcRenderer.invoke("cloud-logs:download", id),
+  },
   app: {
     getVersion: () => ipcRenderer.invoke("app:version"),
   },

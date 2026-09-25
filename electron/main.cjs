@@ -7,6 +7,7 @@ const path = require("node:path")
 const fs = require("node:fs")
 const { startServer } = require("./static-server.cjs")
 const auth = require("./auth.cjs")
+const cloudLogs = require("./cloud-logs.cjs")
 
 const OUT_DIR = path.join(__dirname, "..", "out")
 const PRELOAD = path.join(__dirname, "preload.cjs")
@@ -123,6 +124,11 @@ ipcMain.handle("auth:login", async (_e, credentials) => {
 })
 ipcMain.handle("auth:logout", () => auth.logout())
 ipcMain.handle("auth:get-access-token", () => auth.getAccessToken())
+ipcMain.handle("cloud-logs:list", () => cloudLogs.listLogs())
+ipcMain.handle("cloud-logs:upload", (_e, payload) => cloudLogs.uploadLog(payload))
+ipcMain.handle("cloud-logs:update", (_e, payload) => cloudLogs.updateLog(payload))
+ipcMain.handle("cloud-logs:delete", (_e, id) => cloudLogs.deleteLog(id))
+ipcMain.handle("cloud-logs:download", (_e, id) => cloudLogs.downloadLog(id))
 
 ipcMain.handle("app:version", () => app.getVersion())
 ipcMain.handle("updates:check", () => {
