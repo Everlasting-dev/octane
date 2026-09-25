@@ -8,6 +8,19 @@ published as GitHub releases or tags, and the only public release is the
 current `0.9.x` line. Their entries are kept below for history and are marked
 accordingly. Version numbers therefore decrease part-way down this file.
 
+## v0.9.5 - 2026-09-25
+
+### Added
+
+- Added a desktop-only loaded-log switcher in the top bar with previous/next controls and a direct active-log selector.
+- Added a previous loaded/reference file shortcut with `,`; the existing `.` shortcut now explicitly moves to the next loaded/reference file.
+- Added updater downgrade allowance for the withdrawn `1.0.x` installs so they can move onto the current `0.9.x` development track.
+
+### Changed
+
+- Updated the keyboard shortcut guide and keybinding settings to show the previous/next loaded file controls.
+- Bumped the Octane development build to `0.9.5`.
+
 ## v0.9.4 - 2026-09-16
 
 ### Added

@@ -2,6 +2,8 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
 import {
+  ChevronLeft,
+  ChevronRight,
   Download,
   HelpCircle,
   Keyboard,
@@ -953,6 +955,7 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
   }
 
   function selectLog(i: number) {
+    if (i < 0 || i >= logs.length) return
     if (i === activeIndex) return
     saveSession()
     viewWindowsRef.current = {} // reset per-view windows for the newly active file
@@ -970,6 +973,18 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
     } else {
       applyDefaults(target)
     }
+  }
+
+  function switchLoadedLog(delta: -1 | 1) {
+    if (logs.length < 2) return
+    if (comparing) {
+      const cap = Math.min(logs.length, 3)
+      const current = logs.findIndex((l) => l.fileName === activeCompareFile)
+      const index = current >= 0 && current < cap ? current : 0
+      setActiveCompareFile(logs[(index + delta + cap) % cap]?.fileName ?? logs[0].fileName)
+      return
+    }
+    selectLog((activeIndex + delta + logs.length) % logs.length)
   }
 
   function removeLog(i: number) {
@@ -1379,18 +1394,14 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
       },
     },
     {
+      key: bindings.previousFile,
+      description: "Previous loaded / reference file",
+      handler: () => switchLoadedLog(-1),
+    },
+    {
       key: bindings.cycleFile,
-      description: "Cycle active / reference file",
-      handler: () => {
-        if (logs.length < 2) return
-        if (comparing) {
-          const cap = Math.min(logs.length, 3)
-          const idx = logs.findIndex((l) => l.fileName === activeCompareFile)
-          setActiveCompareFile(logs[(idx + 1) % cap]?.fileName ?? logs[0].fileName)
-        } else {
-          selectLog((activeIndex + 1) % logs.length)
-        }
-      },
+      description: "Next loaded / reference file",
+      handler: () => switchLoadedLog(1),
     },
     {
       key: bindings.heightCycle,
@@ -1455,6 +1466,47 @@ export const Dashboard = forwardRef<DashboardHandle, { initialLog?: ParsedLog | 
             )}
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-2">
+            {logs.length > 1 && !mobileViewport && !comparing && (
+              <div
+                className="hidden max-w-[36rem] items-center gap-1 rounded-md border border-border bg-card/80 p-1 shadow-sm lg:flex"
+                aria-label="Loaded log switcher"
+              >
+                <button
+                  type="button"
+                  onClick={() => switchLoadedLog(-1)}
+                  title="Previous loaded log"
+                  aria-label="Previous loaded log"
+                  className="inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                >
+                  <ChevronLeft className="size-3.5" />
+                </button>
+                <label className="sr-only" htmlFor="octane-active-log">
+                  Active loaded log
+                </label>
+                <select
+                  id="octane-active-log"
+                  value={activeIndex}
+                  onChange={(event) => selectLog(Number(event.target.value))}
+                  className="h-6 min-w-0 max-w-[24rem] rounded border-0 bg-transparent px-1 text-xs font-medium text-foreground outline-none focus:ring-2 focus:ring-ring/30"
+                  title={activeLog?.fileName}
+                >
+                  {logs.map((log, i) => (
+                    <option key={`${log.fileName}-${i}`} value={i}>
+                      Log {i + 1} of {logs.length}: {log.fileName}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => switchLoadedLog(1)}
+                  title="Next loaded log"
+                  aria-label="Next loaded log"
+                  className="inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                >
+                  <ChevronRight className="size-3.5" />
+                </button>
+              </div>
+            )}
             {hasLogs && (
               <button
                 type="button"

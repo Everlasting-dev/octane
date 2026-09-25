@@ -13,6 +13,7 @@ export type ActionId =
   | "togglePick"
   | "editChannels"
   | "quickSearch"
+  | "previousFile"
   | "cycleFile"
   | "toggleGrid"
   | "lockCompare"
@@ -39,7 +40,8 @@ export const ACTIONS: { id: ActionId; label: string; context: ActionContext }[] 
   { id: "heightCycle", label: "Cycle chart height", context: "matrix" },
   { id: "lockCompare", label: "Lock alignment", context: "compare" },
   { id: "quickSearch", label: "Quick search (Matrix & Plot)", context: "global" },
-  { id: "cycleFile", label: "Cycle active / reference file", context: "global" },
+  { id: "previousFile", label: "Previous loaded / reference file", context: "global" },
+  { id: "cycleFile", label: "Next loaded / reference file", context: "global" },
   { id: "toggleGrid", label: "Toggle grid lines", context: "global" },
   { id: "sync", label: "Toggle sync", context: "global" },
   { id: "annotate", label: "Toggle annotate", context: "global" },
@@ -62,6 +64,7 @@ export const DEFAULT_BINDINGS: Bindings = {
   togglePick: "v",
   editChannels: "e",
   quickSearch: "/",
+  previousFile: ",",
   cycleFile: ".",
   heightCycle: "h",
   toggleGrid: "g",

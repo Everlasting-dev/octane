@@ -158,6 +158,9 @@ function getUpdater() {
   const { autoUpdater } = require("electron-updater")
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
+  // Octane briefly shipped withdrawn 1.0.x builds before returning to the 0.9.x
+  // development channel. Allow those installs to move onto the current dev track.
+  autoUpdater.allowDowngrade = true
   updater = autoUpdater
 
   if (!updaterListenersBound) {
