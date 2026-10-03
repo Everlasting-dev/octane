@@ -30,7 +30,11 @@ export const metadata: Metadata = {
   category: 'utilities',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'black-translucent',
+    // 'black' (not 'black-translucent'): iOS 26 home-screen web apps report a
+    // viewport ~47px shorter than the screen when the status bar is translucent,
+    // leaving an unpaintable black band at the bottom (WebKit bug 301108). With a
+    // solid status bar iOS reserves that strip itself and the app fills the rest.
+    statusBarStyle: 'black',
     title: 'Octane',
   },
   formatDetection: {
