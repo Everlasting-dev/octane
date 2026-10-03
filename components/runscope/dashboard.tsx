@@ -7,23 +7,23 @@ import {
   Cloud,
   Download,
   HelpCircle,
+  KeyRound,
   Keyboard,
   LayoutList,
   LineChart,
   MousePointerClick,
+  MoveHorizontal,
   Plus,
   RefreshCw,
   ScanSearch,
   Search,
   SlidersHorizontal,
-  Trash2,
   TriangleAlert,
   Upload,
   X,
 } from "lucide-react"
 import { type SignalKey } from "@/lib/telemetry"
 import { parseLogFile, type ParsedLog } from "@/lib/csv"
-import { SAMPLE_LOG } from "@/lib/sample"
 import { calculateDiff, type DiffStats } from "@/lib/compare"
 import { computeKpis } from "@/lib/kpis"
 import {
@@ -41,19 +41,25 @@ import {
   serializeTemplates,
   parseImportedTemplates,
   makeTemplateId,
+  DEFAULT_TEMPLATES,
+  missingTemplateEntries,
+  resolveEntry,
+  resolveTemplateLabels,
+  withChannelsFromGroups,
   type Template,
 } from "@/lib/templates"
+import { TemplateEditor, templateGroups } from "./template-editor"
 import { useShortcuts, type Shortcut } from "@/hooks/use-shortcuts"
 import { useBindings } from "@/lib/keybindings"
 import { isMobileViewportNow, useMobileViewport } from "@/lib/viewport"
 import { Rail, type ViewMode } from "./rail"
 import { ControlPanel, type ChannelItem } from "./control-panel"
-import { CombinedChart, type PaneGroup, type Transform } from "./combined-chart"
+import { CombinedChart, MOBILE_ANALYSIS_MAX_CHANNELS, type PaneGroup, type Transform } from "./combined-chart"
 import { CompareView } from "./compare-view"
 import { KpiCards } from "./kpi-cards"
 import { RangeBrush, type OverviewSeries } from "./range-brush"
 import { LoadedFiles } from "./loaded-files"
-import { SignalChart, type ChartSeries } from "./signal-chart"
+import { CHART_INTRINSIC_HEIGHT, SignalChart, type ChartSeries } from "./signal-chart"
 import { DEFAULT_DISPLAY, type DisplaySettings } from "./display-panel"
 import { UploadZone } from "./upload-zone"
 import { AboutModal } from "./about-modal"
@@ -63,430 +69,73 @@ import { ShortcutsModal } from "./shortcuts-modal"
 import { AnnotationDialog, type AnnotationDraft } from "./annotation-dialog"
 import { LicenseBadge } from "./license-badge"
 import { CloudLogsDialog } from "./cloud-logs-dialog"
+import { FlagStrip } from "./flag-strip"
+import { decodeValue, decoderFor, describe, stepValueAt, useFlagDecoders } from "@/lib/flag-decoders"
 import { cn } from "@/lib/utils"
-import { plotColor } from "@/lib/palette"
+import { COMPARE_FILE_COLORS, assignLineColors } from "@/lib/palette"
+import { loadLineStyles, saveLineStyles } from "@/lib/line-style"
 import { friendlyFileError } from "@/lib/friendly-errors"
 import { isCloudLogAdmin } from "@/lib/cloud-logs"
+import { isOwnerUser } from "@/lib/auth"
+import { LicensesDialog } from "./licenses-dialog"
 import type { AuthUser } from "@/lib/auth"
 
 const MIN_ZOOM = 100
-const MAX_ZOOM = 800
+// 50x: drag-selecting a few seconds out of a long session must not be clamped.
+const MAX_ZOOM = 5000
 const DEFAULT_VISIBLE = 6
-const MOBILE_ANALYSIS_MAX_CHANNELS = 6
-const FILE_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"]
+const FILE_COLORS = COMPARE_FILE_COLORS
 
-interface ChannelPreset {
-  id: string
-  name: string
-  patterns: { label: string; match: RegExp[] }[]
+/** Stable identity for a loaded log (two files can share a name). */
+function logKey(log: ParsedLog): string {
+  return `${log.fileName}|${log.samples}|${log.duration}`
 }
 
-interface ChannelPresetConfig {
-  id: string
-  name: string
-}
-
-interface ChannelPresetGroup {
-  id: string
-  title: string
-  labels: string[]
-}
-
-const CHANNEL_PRESETS: ChannelPreset[] = [
-  {
-    id: "general",
-    name: "General tuning",
-    patterns: [
-      { label: "RPM", match: [/engine speed/i, /\brpm\b/i] },
-      { label: "MAP", match: [/manifold.*absolute/i, /\bmap\b/i, /manifold.*pressure/i] },
-      { label: "TPS", match: [/throttle.*angle/i, /\btps\b/i] },
-      { label: "Lambda / AFR", match: [/lambda/i, /\bafr\b/i] },
-      { label: "Coolant temp", match: [/coolant.*temp/i] },
-      { label: "Fuel trim short", match: [/short.*fuel.*trim/i, /fuel.*trim.*short/i] },
-      { label: "Fuel trim long", match: [/long.*fuel.*trim/i, /fuel.*trim.*long/i] },
-      { label: "Fuel duty", match: [/fuel.*duty/i, /injector.*duty/i] },
-      { label: "Fuel pressure", match: [/fuel.*pressure/i, /rail.*pressure/i] },
-      { label: "Ignition angle", match: [/ignition.*tim/i, /ignition.*angle/i, /spark/i] },
-      { label: "Battery voltage", match: [/battery.*voltage/i, /\bbatt/i] },
-    ],
-  },
-  {
-    id: "idle",
-    name: "Idle",
-    patterns: [
-      { label: "RPM", match: [/engine speed/i, /\brpm\b/i] },
-      { label: "MAP", match: [/manifold.*pressure/i, /\bmap\b/i] },
-      { label: "Throttle", match: [/throttle.*angle/i, /\btps\b/i] },
-      { label: "Accelerator", match: [/accelerator.*pedal/i] },
-      { label: "Lambda / AFR", match: [/lambda/i, /\bafr\b/i] },
-      { label: "Short trim", match: [/short.*fuel.*trim/i, /fuel.*trim.*short/i] },
-      { label: "Long trim", match: [/long.*fuel.*trim/i, /fuel.*trim.*long/i] },
-      { label: "Ignition timing", match: [/ignition.*tim/i, /spark/i] },
-      { label: "Coolant temp", match: [/coolant.*temp/i] },
-      { label: "IAT", match: [/intake.*air.*temp/i, /\biat\b/i] },
-      { label: "Idle control", match: [/idle/i] },
-      { label: "Battery voltage", match: [/battery.*voltage/i] },
-    ],
-  },
-  {
-    id: "boost",
-    name: "Boost",
-    patterns: [
-      { label: "RPM", match: [/engine speed/i, /\brpm\b/i] },
-      { label: "Gear", match: [/^gear$/i, /\bgear\b/i] },
-      { label: "MAP", match: [/manifold.*absolute/i, /\bmap\b/i] },
-      { label: "Boost target", match: [/boost.*target/i, /desired.*boost/i] },
-      { label: "Boost bank 1", match: [/boost.*bank.*1/i] },
-      { label: "Boost bank 2", match: [/boost.*bank.*2/i] },
-      { label: "Boost error", match: [/boost.*error/i] },
-      { label: "Wastegate duty", match: [/wastegate.*duty/i, /\bwg.*duty/i] },
-      { label: "WG base", match: [/wg.*base/i, /wastegate.*base/i] },
-      { label: "WG proportional", match: [/wg.*proportional/i, /wastegate.*proportional/i] },
-      { label: "WG integral", match: [/wg.*integral/i, /wastegate.*integral/i] },
-      { label: "Throttle", match: [/throttle.*angle/i] },
-      { label: "Atmospheric pressure", match: [/atmospheric.*pressure/i] },
-      { label: "IAT", match: [/intake.*air.*temp/i, /\biat\b/i] },
-    ],
-  },
-  {
-    id: "vvt",
-    name: "VVT",
-    patterns: [
-      { label: "RPM", match: [/engine speed/i, /\brpm\b/i] },
-      { label: "Engine load", match: [/engine.*load/i] },
-      { label: "Intake cam", match: [/intake.*cam/i, /inlet.*cam/i] },
-      { label: "Exhaust cam", match: [/exhaust.*cam/i] },
-      { label: "VVT target", match: [/vvt.*target/i, /cam.*target/i] },
-      { label: "VVT duty", match: [/vvt.*duty/i, /cam.*duty/i, /solenoid.*duty/i] },
-      { label: "Oil pressure", match: [/oil.*pressure/i] },
-      { label: "Oil temp", match: [/oil.*temp/i] },
-      { label: "Coolant temp", match: [/coolant.*temp/i] },
-    ],
-  },
-  {
-    id: "ethrottle",
-    name: "E-throttle",
-    patterns: [
-      { label: "Accelerator pedal", match: [/accelerator.*pedal/i] },
-      { label: "Throttle bank 1", match: [/throttle.*bank.*1/i] },
-      { label: "Throttle bank 2", match: [/throttle.*bank.*2/i] },
-      { label: "Throttle target", match: [/throttle.*target/i, /desired.*throttle/i] },
-      { label: "Throttle duty", match: [/throttle.*duty/i, /motor.*duty/i] },
-      { label: "RPM", match: [/engine speed/i, /\brpm\b/i] },
-      { label: "MAP", match: [/manifold.*pressure/i, /\bmap\b/i] },
-      { label: "Torque", match: [/torque/i] },
-    ],
-  },
-  {
-    id: "temps",
-    name: "Temps",
-    patterns: [
-      { label: "Coolant temp", match: [/coolant.*temp/i] },
-      { label: "IAT", match: [/intake.*air.*temp/i, /\biat\b/i] },
-      { label: "Oil temp", match: [/oil.*temp/i] },
-      { label: "Transmission temp", match: [/trans.*temp/i, /transmission.*temp/i] },
-      { label: "Fuel temp", match: [/fuel.*temp/i] },
-      { label: "EGT", match: [/\begt\b/i, /exhaust.*temp/i] },
-      { label: "Catalyst temp", match: [/catalyst.*temp/i, /cat.*temp/i] },
-      { label: "Ambient temp", match: [/ambient.*temp/i, /atmospheric.*temp/i] },
-    ],
-  },
-  {
-    id: "wheel-speeds",
-    name: "Wheel speeds",
-    patterns: [
-      { label: "Vehicle speed", match: [/vehicle.*speed/i] },
-      { label: "Front left", match: [/wheel.*speed.*front.*left/i, /front.*left.*wheel/i] },
-      { label: "Front right", match: [/wheel.*speed.*front.*right/i, /front.*right.*wheel/i] },
-      { label: "Rear left", match: [/wheel.*speed.*rear.*left/i, /rear.*left.*wheel/i] },
-      { label: "Rear right", match: [/wheel.*speed.*rear.*right/i, /rear.*right.*wheel/i] },
-      { label: "Gear", match: [/\bgear\b/i] },
-      { label: "Traction / slip", match: [/traction/i, /slip/i, /\babs\b/i] },
-    ],
-  },
-  {
-    id: "gr6",
-    name: "GR6",
-    patterns: [
-      { label: "Gear", match: [/\bgear\b/i] },
-      { label: "Transmission temp", match: [/trans.*temp/i, /gr6.*temp/i] },
-      { label: "Clutch pressure", match: [/clutch.*pressure/i] },
-      { label: "Clutch slip", match: [/clutch.*slip/i] },
-      { label: "Clutch speed", match: [/clutch.*speed/i] },
-      { label: "Input shaft", match: [/input.*shaft/i] },
-      { label: "Output shaft", match: [/output.*shaft/i] },
-      { label: "Line pressure", match: [/line.*pressure/i] },
-      { label: "Shift status", match: [/shift.*status/i, /shift.*mode/i] },
-      { label: "Solenoid", match: [/solenoid/i] },
-      { label: "Torque reduction", match: [/torque.*reduction/i, /torque.*limit/i] },
-    ],
-  },
-  {
-    id: "clutch-speeds",
-    name: "Clutch speeds",
-    patterns: [
-      { label: "RPM", match: [/engine speed/i, /\brpm\b/i] },
-      { label: "Gear", match: [/\bgear\b/i] },
-      { label: "Clutch A speed", match: [/clutch.*a.*speed/i, /clutch.*1.*speed/i] },
-      { label: "Clutch B speed", match: [/clutch.*b.*speed/i, /clutch.*2.*speed/i] },
-      { label: "Input shaft", match: [/input.*shaft.*speed/i] },
-      { label: "Output shaft", match: [/output.*shaft.*speed/i] },
-      { label: "Clutch slip", match: [/clutch.*slip/i] },
-    ],
-  },
-  {
-    id: "clutch-temps",
-    name: "Clutch temps",
-    patterns: [
-      { label: "Clutch A temp", match: [/clutch.*a.*temp/i, /clutch.*1.*temp/i] },
-      { label: "Clutch B temp", match: [/clutch.*b.*temp/i, /clutch.*2.*temp/i] },
-      { label: "Transmission temp", match: [/trans.*temp/i] },
-      { label: "Oil temp", match: [/oil.*temp/i] },
-      { label: "Gear", match: [/\bgear\b/i] },
-      { label: "Clutch slip", match: [/clutch.*slip/i] },
-    ],
-  },
-  {
-    id: "all-temps",
-    name: "All temps",
-    patterns: [
-      { label: "Temperature channels", match: [/temp/i, /temperature/i, /coolant/i, /\biat\b/i, /\begt\b/i, /oil/i, /trans/i, /fuel.*temp/i, /ambient/i] },
-    ],
-  },
-  {
-    id: "ethanol",
-    name: "Ethanol",
-    patterns: [
-      { label: "Ethanol content", match: [/ethanol/i, /flex.*fuel/i] },
-      { label: "Fuel pressure", match: [/fuel.*pressure/i, /rail.*pressure/i] },
-      { label: "Fuel temp", match: [/fuel.*temp/i] },
-      { label: "Lambda / AFR", match: [/lambda/i, /\bafr\b/i] },
-      { label: "AFR target", match: [/afr.*target/i, /target.*afr/i] },
-      { label: "Fuel trim short", match: [/short.*fuel.*trim/i, /fuel.*trim.*short/i] },
-      { label: "Fuel trim long", match: [/long.*fuel.*trim/i, /fuel.*trim.*long/i] },
-      { label: "Injector duty", match: [/injector.*duty/i, /fuel.*duty/i] },
-      { label: "Ignition timing", match: [/ignition.*tim/i, /spark/i] },
-      { label: "Boost / MAP", match: [/boost/i, /manifold.*pressure/i, /\bmap\b/i] },
-    ],
-  },
-]
-
-const CHANNEL_PRESET_GROUPS: Record<string, ChannelPresetGroup[]> = {
-  general: [
-    { id: "engine-air", title: "Engine / Air", labels: ["RPM", "MAP", "TPS", "Coolant temp", "Battery voltage"] },
-    {
-      id: "fuel-ignition",
-      title: "Fuel / Ignition",
-      labels: ["Lambda / AFR", "Fuel trim short", "Fuel trim long", "Fuel duty", "Fuel pressure", "Ignition angle"],
-    },
-  ],
-  idle: [
-    { id: "idle-control", title: "Idle Control", labels: ["RPM", "MAP", "Throttle", "Accelerator", "Idle control", "Battery voltage"] },
-    { id: "idle-fuel", title: "Fuel / Heat", labels: ["Lambda / AFR", "Short trim", "Long trim", "Ignition timing", "Coolant temp", "IAT"] },
-  ],
-  boost: [
-    {
-      id: "boost-response",
-      title: "Boost Response",
-      labels: ["RPM", "Gear", "MAP", "Boost target", "Boost bank 1", "Boost bank 2", "Boost error", "Atmospheric pressure"],
-    },
-    {
-      id: "wastegate",
-      title: "Wastegate / Airflow",
-      labels: ["Wastegate duty", "WG base", "WG proportional", "WG integral", "Throttle", "IAT"],
-    },
-  ],
-  vvt: [
-    { id: "cam-control", title: "Cam Control", labels: ["RPM", "Engine load", "Intake cam", "Exhaust cam", "VVT target", "VVT duty"] },
-    { id: "oil-support", title: "Oil / Heat", labels: ["Oil pressure", "Oil temp", "Coolant temp"] },
-  ],
-  ethrottle: [
-    {
-      id: "pedal-throttle",
-      title: "Pedal / Throttle",
-      labels: ["Accelerator pedal", "Throttle bank 1", "Throttle bank 2", "Throttle target", "Throttle duty"],
-    },
-    { id: "torque-load", title: "Torque / Load", labels: ["RPM", "MAP", "Torque"] },
-  ],
-  temps: [
-    {
-      id: "heat",
-      title: "Temperature Stack",
-      labels: ["Coolant temp", "IAT", "Oil temp", "Transmission temp", "Fuel temp", "EGT", "Catalyst temp", "Ambient temp"],
-    },
-  ],
-  "wheel-speeds": [
-    { id: "wheel-speed", title: "Wheel Speeds", labels: ["Vehicle speed", "Front left", "Front right", "Rear left", "Rear right"] },
-    { id: "stability", title: "Stability", labels: ["Gear", "Traction / slip"] },
-  ],
-  gr6: [
-    { id: "shift-state", title: "Shift State", labels: ["Gear", "Shift status", "Torque reduction"] },
-    { id: "speed-slip", title: "Speed / Slip", labels: ["Clutch speed", "Input shaft", "Output shaft", "Clutch slip"] },
-    { id: "pressure-heat", title: "Pressure / Heat", labels: ["Transmission temp", "Clutch pressure", "Line pressure", "Solenoid"] },
-  ],
-  "clutch-speeds": [
-    { id: "clutch-speed", title: "Clutch Speeds", labels: ["RPM", "Gear", "Clutch A speed", "Clutch B speed", "Input shaft", "Output shaft", "Clutch slip"] },
-  ],
-  "clutch-temps": [
-    { id: "clutch-heat", title: "Clutch Heat", labels: ["Clutch A temp", "Clutch B temp", "Transmission temp", "Oil temp", "Gear", "Clutch slip"] },
-  ],
-  "all-temps": [{ id: "all-temps", title: "All Temperatures", labels: ["Temperature channels"] }],
-  ethanol: [
-    {
-      id: "fuel-ethanol",
-      title: "Fuel / Ethanol",
-      labels: ["Ethanol content", "Fuel pressure", "Fuel temp", "Fuel trim short", "Fuel trim long", "Injector duty"],
-    },
-    { id: "combustion", title: "Combustion", labels: ["Lambda / AFR", "AFR target", "Ignition timing", "Boost / MAP"] },
-  ],
-}
-
-const CHANNEL_PRESETS_STORAGE_KEY = "octane:channel-presets:v1"
-const CHANNEL_LAYOUTS_STORAGE_KEY = "octane:channel-preset-layouts:v1"
-const READOUT_PICKING_STORAGE_KEY = "octane:readout-picking:v1"
-
-function makeChannelPresetId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return `custom-${crypto.randomUUID()}`
-  return `custom-${Date.now().toString(36)}-${Math.floor(Math.random() * 10000).toString(36)}`
-}
-
-function makePresetGroupId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID()
-  return `preset-group-${Date.now().toString(36)}-${Math.floor(Math.random() * 10000).toString(36)}`
-}
-
-function cloneChannelPresets(configs: ChannelPresetConfig[] = CHANNEL_PRESETS.map(({ id, name }) => ({ id, name }))): ChannelPreset[] {
-  const defaults = new Map(CHANNEL_PRESETS.map((preset) => [preset.id, preset]))
-  return configs.map((config) => {
-    const base = defaults.get(config.id)
-    return {
-      id: config.id,
-      name: config.name,
-      patterns: base?.patterns ?? [],
+/**
+ * Mount a chart only while it is near the scroll viewport. With every channel
+ * visible by default, this keeps cursor/zoom updates cheap on big logs.
+ */
+function LazyMount({
+  id,
+  root,
+  estimate,
+  className,
+  children,
+}: {
+  id?: string
+  root: React.RefObject<HTMLElement | null>
+  estimate: number
+  className?: string
+  children: React.ReactNode
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const heightRef = useRef(estimate)
+  const [visible, setVisible] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    if (typeof IntersectionObserver === "undefined") {
+      setVisible(true)
+      return
     }
-  })
-}
-
-function serializeChannelPresets(presets: ChannelPreset[]): ChannelPresetConfig[] {
-  return presets.map((preset) => ({ id: preset.id, name: preset.name }))
-}
-
-function normalizeChannelPresets(value: unknown): ChannelPreset[] | null {
-  if (!Array.isArray(value)) return null
-  const seen = new Set<string>()
-  const configs: ChannelPresetConfig[] = []
-  for (const item of value) {
-    if (!item || typeof item !== "object") continue
-    const raw = item as { id?: unknown; name?: unknown }
-    const id = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : makeChannelPresetId()
-    if (seen.has(id)) continue
-    seen.add(id)
-    configs.push({
-      id,
-      name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : "Custom preset",
-    })
-  }
-  return configs.length ? cloneChannelPresets(configs) : null
-}
-
-function loadStoredChannelPresets(): ChannelPreset[] | null {
-  if (typeof window === "undefined") return null
-  try {
-    return normalizeChannelPresets(JSON.parse(window.localStorage.getItem(CHANNEL_PRESETS_STORAGE_KEY) ?? "null"))
-  } catch {
-    return null
-  }
-}
-
-function saveStoredChannelPresets(presets: ChannelPreset[]) {
-  if (typeof window === "undefined") return
-  try {
-    window.localStorage.setItem(CHANNEL_PRESETS_STORAGE_KEY, JSON.stringify(serializeChannelPresets(presets)))
-  } catch {
-    /* ignore storage failures */
-  }
-}
-
-function serializeChannelWorkspace(presets: ChannelPreset[], groupsByPreset: Record<string, ChannelPresetGroup[]>): string {
-  return JSON.stringify(
-    {
-      app: "octane",
-      kind: "channels-layout",
-      version: 1,
-      presets: serializeChannelPresets(presets),
-      groupsByPreset,
-    },
-    null,
-    2,
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) heightRef.current = Math.max(40, el.getBoundingClientRect().height || heightRef.current)
+        setVisible(entry.isIntersecting)
+      },
+      { root: root.current, rootMargin: "900px 0px" },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [root])
+  return (
+    <div ref={ref} id={id} className={className} style={visible ? undefined : { minHeight: heightRef.current }}>
+      {visible ? children : null}
+    </div>
   )
 }
 
-function parseImportedChannelWorkspace(json: string): { presets: ChannelPreset[]; groupsByPreset: Record<string, ChannelPresetGroup[]> } | null {
-  try {
-    const data = JSON.parse(json)
-    const presets = normalizeChannelPresets(data?.presets ?? data?.channelPresets ?? data?.channelsPresets)
-    const groupsByPreset = normalizePresetGroups(data?.groupsByPreset ?? data?.groups ?? data?.layouts)
-    if (!presets?.length) return null
-    return { presets, groupsByPreset: groupsByPreset ?? clonePresetGroups() }
-  } catch {
-    return null
-  }
-}
-
-function clonePresetGroupList(groups: ChannelPresetGroup[]): ChannelPresetGroup[] {
-  return groups.map((group) => ({ ...group, labels: [...group.labels] }))
-}
-
-function clonePresetGroups(groups: Record<string, ChannelPresetGroup[]> = CHANNEL_PRESET_GROUPS): Record<string, ChannelPresetGroup[]> {
-  return Object.fromEntries(
-    Object.entries(groups).map(([presetId, presetGroups]) => [
-      presetId,
-      clonePresetGroupList(presetGroups),
-    ]),
-  )
-}
-
-function fallbackPresetGroups(preset: ChannelPreset, groupsByPreset: Record<string, ChannelPresetGroup[]> = CHANNEL_PRESET_GROUPS): ChannelPresetGroup[] {
-  const defaults = groupsByPreset[preset.id]
-  if (defaults?.length) return clonePresetGroupList(defaults)
-  if (preset.patterns.length) return [{ id: preset.id, title: preset.name, labels: preset.patterns.map((item) => item.label) }]
-  return [{ id: makePresetGroupId(), title: "Graph 1", labels: [] }]
-}
-
-function normalizePresetGroups(value: unknown): Record<string, ChannelPresetGroup[]> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null
-  const next = clonePresetGroups()
-  for (const [presetId, rawGroups] of Object.entries(value as Record<string, unknown>)) {
-    if (!Array.isArray(rawGroups)) continue
-    const groups = rawGroups
-      .filter((item): item is { id?: unknown; title?: unknown; labels?: unknown } => !!item && typeof item === "object")
-      .map((item) => ({
-        id: typeof item.id === "string" && item.id ? item.id : makePresetGroupId(),
-        title: typeof item.title === "string" && item.title.trim() ? item.title.trim() : "Graph",
-        labels: Array.isArray(item.labels) ? item.labels.filter((label): label is string => typeof label === "string" && label.trim().length > 0) : [],
-      }))
-    if (groups.length > 0) next[presetId] = groups
-  }
-  return next
-}
-
-function loadStoredPresetGroups(): Record<string, ChannelPresetGroup[]> | null {
-  if (typeof window === "undefined") return null
-  try {
-    return normalizePresetGroups(JSON.parse(window.localStorage.getItem(CHANNEL_LAYOUTS_STORAGE_KEY) ?? "null"))
-  } catch {
-    return null
-  }
-}
-
-function saveStoredPresetGroups(groups: Record<string, ChannelPresetGroup[]>) {
-  if (typeof window === "undefined") return
-  try {
-    window.localStorage.setItem(CHANNEL_LAYOUTS_STORAGE_KEY, JSON.stringify(groups))
-  } catch {
-    /* ignore storage failures */
-  }
-}
+const READOUT_PICKING_STORAGE_KEY = "octane:readout-picking:v1"
 
 function loadReadoutPicking(): boolean {
   if (typeof window === "undefined") return true
@@ -555,6 +204,18 @@ function preferredMobileSignals(log: ParsedLog): ParsedLog["signals"] {
   return selected
 }
 
+/** Lines on the desktop Analysis Plot by default (the General template). */
+const DESKTOP_ANALYSIS_DEFAULT_MAX = 12
+
+function defaultAnalysisLabels(log: ParsedLog, mobile: boolean, template?: Template | null): Set<string> {
+  if (!mobile) {
+    const resolved = resolveTemplateLabels(template ?? DEFAULT_TEMPLATES[0], log.signals.map((s) => s.label))
+    const labels = new Set(resolved.slice(0, DESKTOP_ANALYSIS_DEFAULT_MAX))
+    if (labels.size) return labels
+  }
+  return defaultMobileAnalysisLabels(log)
+}
+
 function defaultMobileAnalysisLabels(log: ParsedLog): Set<string> {
   const preferred = preferredMobileSignals(log)
   const labels = new Set<string>()
@@ -577,7 +238,8 @@ function defaultHidden(log: ParsedLog, mobile = false): Set<string> {
     const visible = preferred.length ? new Set(preferred.map((signal) => signal.key)) : new Set(log.signals.slice(0, DEFAULT_VISIBLE).map((signal) => signal.key))
     return new Set(log.signals.filter((signal) => !visible.has(signal.key)).map((signal) => signal.key))
   }
-  return new Set(log.signals.slice(DEFAULT_VISIBLE).map((s) => s.key))
+  // Desktop: every channel is visible on load (Signal Matrix shows all parameters).
+  return new Set()
 }
 
 function fmtChannelValue(value: number | null | undefined, decimals: number) {
@@ -649,7 +311,9 @@ interface Session {
   zoom: number
   collapsed: Set<string>
   cursorT: number | null
-  mobileAnalysisLabels?: Set<string>
+  analysisLabels?: Set<string>
+  /** Time window per view, so each file keeps its own Analysis/Matrix range. */
+  viewWindows?: Partial<Record<ViewMode, { domain: [number, number]; zoom: number }>>
 }
 
 interface Channel {
@@ -678,42 +342,39 @@ export const Dashboard = forwardRef<
   const [sync, setSync] = useState(true)
   const [view, setView] = useState<ViewMode>("matrix")
   const mobileViewport = useMobileViewport()
-  const [activePresetId, setActivePresetId] = useState(CHANNEL_PRESETS[0].id)
-  const [channelPresets, setChannelPresets] = useState<ChannelPreset[]>(() => cloneChannelPresets())
-  const [channelsPaneOpen, setChannelsPaneOpen] = useState(true)
+  // Channels view: which shared template is open.
+  const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null)
+  // Channels view opens graph-only; the Values pane is opt-in.
+  const [channelsPaneOpen, setChannelsPaneOpen] = useState(false)
   const [channelsPaneQuery, setChannelsPaneQuery] = useState("")
   const [channelsHelpOpen, setChannelsHelpOpen] = useState(false)
   const [channelsEditOpen, setChannelsEditOpen] = useState(false)
-  const [channelPresetGroups, setChannelPresetGroups] = useState<Record<string, ChannelPresetGroup[]>>(() => clonePresetGroups())
   const [readoutPicking, setReadoutPicking] = useState(loadReadoutPicking)
-  const defaultChannelPresets = useMemo(() => cloneChannelPresets(), [])
-  const defaultChannelGroups = useMemo(() => clonePresetGroups(), [])
   const [annotate, setAnnotate] = useState(false)
+  const [windowMode, setWindowMode] = useState(false)
+  const [compareMode, setCompareMode] = useState<"matrix" | "areas">("matrix")
   const [zoom, setZoom] = useState(100)
   const [domain, setDomain] = useState<[number, number]>(initialLog ? [0, initialLog.duration] : [0, 0])
   const [cursorT, setCursorT] = useState<number | null>(null)
   const [query, setQuery] = useState("")
   const [collapsed, setCollapsed] = useState<Set<SignalKey>>(new Set())
   const [hidden, setHidden] = useState<Set<SignalKey>>(initialLog ? defaultHidden(initialLog, isMobileViewportNow()) : new Set())
-  const [mobileAnalysisLabels, setMobileAnalysisLabels] = useState<Set<string>>(() => (initialLog ? defaultMobileAnalysisLabels(initialLog) : new Set()))
+  // Lines on the Analysis Plot. Separate from the Signal Matrix selection so the
+  // matrix can show every channel while the overlay stays readable.
+  const [analysisLabels, setAnalysisLabels] = useState<Set<string>>(() =>
+    initialLog ? defaultAnalysisLabels(initialLog, isMobileViewportNow()) : new Set(),
+  )
   const [display, setDisplay] = useState<DisplaySettings>(DEFAULT_DISPLAY)
 
   // Per-file working state, so switching logs resumes where you left off.
   const sessionsRef = useRef<Map<string, Session>>(new Map())
   const [templates, setTemplates] = useState<Template[]>([])
+  const templatesRef = useRef<Template[]>([])
+  templatesRef.current = templates
   useEffect(() => {
     loadTemplates().then(ensureSeedTemplates).then(setTemplates)
   }, [])
-  useEffect(() => {
-    const storedPresets = loadStoredChannelPresets()
-    if (storedPresets) setChannelPresets(storedPresets)
-    const stored = loadStoredPresetGroups()
-    if (stored) setChannelPresetGroups(stored)
-  }, [])
-  useEffect(() => {
-    if (!channelPresets.length) return
-    if (!channelPresets.some((preset) => preset.id === activePresetId)) setActivePresetId(channelPresets[0].id)
-  }, [activePresetId, channelPresets])
+  // Old separate Channels-preset storage was merged into the template file (see lib/templates.ts).
   useEffect(() => {
     if (mobileViewport && view !== "matrix" && view !== "plot") setView("plot")
   }, [mobileViewport, view])
@@ -722,7 +383,17 @@ export const Dashboard = forwardRef<
   }, [readoutPicking])
 
   // Analysis Plot state (persisted across view switches).
+  // Line styles (colour, weight, scale range…) are keyed by channel label and
+  // saved locally, so a tuned layout carries across logs and restarts.
   const [analysisTransforms, setAnalysisTransforms] = useState<Record<string, Transform>>({})
+  const [lineStylesReady, setLineStylesReady] = useState(false)
+  useEffect(() => {
+    setAnalysisTransforms(loadLineStyles())
+    setLineStylesReady(true)
+  }, [])
+  useEffect(() => {
+    if (lineStylesReady) saveLineStyles(analysisTransforms)
+  }, [analysisTransforms, lineStylesReady])
   const [analysisFocus, setAnalysisFocus] = useState<string | null>(null)
   const [analysisMarkPeaks, setAnalysisMarkPeaks] = useState(false)
   const [analysisSplit, setAnalysisSplit] = useState(false)
@@ -748,6 +419,9 @@ export const Dashboard = forwardRef<
   const [matrixQuery, setMatrixQuery] = useState("")
   const [highlightChannel, setHighlightChannel] = useState<SignalKey | null>(null)
   const quickRef = useRef<HTMLInputElement>(null)
+  const mobileQuickRef = useRef<HTMLInputElement>(null)
+  const [mobileSearchActive, setMobileSearchActive] = useState(false)
+  const analysisLabelsLogRef = useRef<ParsedLog | null>(null)
 
   const searchRef = useRef<HTMLInputElement>(null)
   const mainRef = useRef<HTMLDivElement>(null)
@@ -756,7 +430,8 @@ export const Dashboard = forwardRef<
 
   const hasLogs = logs.length > 0
   const displayEmail = accountUser?.email ?? accountEmail
-  const canUseCloudLogs = isCloudLogAdmin(displayEmail)
+  const canUseCloudLogs = accountUser ? isOwnerUser(accountUser) : isCloudLogAdmin(displayEmail)
+  const [showLicenses, setShowLicenses] = useState(false)
   const canCompare = logs.length > 1
   const comparing = view === "compare" && canCompare
   const activeLog = logs[activeIndex] ?? logs[0]
@@ -797,99 +472,79 @@ export const Dashboard = forwardRef<
     }
     const labelMaps = logs.map((l) => new Map(l.signals.map((s) => [s.label, s])))
     const common = [...labelMaps[0].keys()].filter((lab) => labelMaps.every((m) => m.has(lab)))
-    return common.map((lab) => {
+    // Apply the Compare alignment offsets so the matrix matches the overlay areas.
+    const shifted = (sig: ParsedLog["signals"][number], off: number) =>
+      off ? { ...sig, data: sig.data.map((d) => ({ t: d.t + off, value: d.value })) } : sig
+    return common
+      .sort((a, b) => a.localeCompare(b))
+      .map((lab) => {
       const series: ChartSeries[] = logs.map((l, li) => ({
         id: `${li}-${lab}`,
         name: l.fileName,
         color: FILE_COLORS[li % FILE_COLORS.length],
-        signal: labelMaps[li].get(lab)!,
+        signal: shifted(labelMaps[li].get(lab)!, fileOffsets[l.fileName] ?? 0),
       }))
       const diff = calculateDiff(series[0].signal.data, series[1].signal.data)
       const base = labelMaps[0].get(lab)!
       return { key: `cmp-${lab}`, label: lab, unit: base.unit, decimals: base.decimals, series, diffStats: diff?.stats ?? null }
     })
-  }, [logs, comparing, activeIndex])
+  }, [logs, comparing, activeIndex, fileOffsets])
 
   useEffect(() => {
     if (!activeLog || channels.length === 0) return
+    const fresh = analysisLabelsLogRef.current !== activeLog
+    analysisLabelsLogRef.current = activeLog
     const availableLabels = new Set(channels.map((channel) => channel.label))
-    setMobileAnalysisLabels((current) => {
+    setAnalysisLabels((current) => {
       const kept = [...current].filter((label) => availableLabels.has(label)).slice(0, MOBILE_ANALYSIS_MAX_CHANNELS)
-      if (kept.length > 0 && kept.length === current.size) return current
-      if (kept.length > 0) return new Set(kept)
-      return defaultMobileAnalysisLabels(activeLog)
+      // A new log with nothing usable gets the defaults; an empty set chosen by
+      // the user ("Deselect all") stays empty.
+      if (fresh && kept.length === 0) return analysisDefaults(activeLog)
+      if (kept.length === current.size) return current
+      return new Set(kept)
     })
-  }, [activeLog, channels])
+  }, [activeLog, channels]) // eslint-disable-line react-hooks/exhaustive-deps -- defaults read refs/viewport only
 
   const channelItems: ChannelItem[] = useMemo(
     () => channels.map((c) => ({ key: c.key, label: c.label, unit: c.unit, color: c.series[0].color })),
     [channels],
   )
-  const activePreset = channelPresets.find((preset) => preset.id === activePresetId) ?? channelPresets[0] ?? CHANNEL_PRESETS[0]
+  const activeTemplate = templates.find((t) => t.id === activeTemplateId) ?? templates[0] ?? null
+  const activePreset = activeTemplate ?? { id: "none", name: "No template", channels: [] as string[] }
   const presetMatch = useMemo(() => {
+    const empty = { channels: [] as Channel[], missing: [] as string[], groups: [] as PaneGroup[] }
+    if (!activeTemplate) return empty
+    const labels = channels.map((c) => c.label)
+    const byLabel = new Map(channels.map((c) => [c.label, c]))
     const selected: Channel[] = []
-    const missing: string[] = []
     const seen = new Set<string>()
-    const byPatternLabel = new Map<string, Channel[]>()
-    const directByLabel = new Map(channels.map((channel) => [channel.label, channel]))
-
-    for (const item of activePreset.patterns) {
-      const matches = channels.filter((channel) => item.match.some((pattern) => pattern.test(channel.label)))
-      if (!matches.length) {
-        missing.push(item.label)
-        byPatternLabel.set(item.label, [])
-        continue
-      }
-      byPatternLabel.set(item.label, matches)
-    }
-
-    function matchesForLayoutLabel(label: string): Channel[] {
-      const patternMatches = byPatternLabel.get(label)
-      if (patternMatches?.length) return patternMatches
-      const direct = directByLabel.get(label)
-      return direct ? [direct] : []
-    }
-
-    const groups: PaneGroup[] = (channelPresetGroups[activePreset.id] ?? [
-      { id: activePreset.id, title: activePreset.name, labels: activePreset.patterns.map((item) => item.label) },
-    ])
+    const groups: PaneGroup[] = templateGroups(activeTemplate)
       .map((group) => {
         const groupSeen = new Set<string>()
         const series: ChartSeries[] = []
-        for (const label of group.labels) {
-          for (const channel of matchesForLayoutLabel(label)) {
-            if (groupSeen.has(channel.key)) continue
-            groupSeen.add(channel.key)
-            if (!seen.has(channel.key)) {
-              seen.add(channel.key)
+        for (const entry of group.channels) {
+          for (const label of resolveEntry(entry, labels)) {
+            if (groupSeen.has(label)) continue
+            groupSeen.add(label)
+            const channel = byLabel.get(label)
+            if (!channel) continue
+            if (!seen.has(label)) {
+              seen.add(label)
               selected.push(channel)
             }
             series.push(channel.series[0])
           }
         }
-        return { id: `${activePreset.id}-${group.id}`, title: group.title, series }
+        return { id: `${activeTemplate.id}-${group.id}`, title: group.title, series }
       })
       .filter((group) => group.series.length > 0)
+    return { channels: selected, missing: missingTemplateEntries(activeTemplate, labels), groups }
+  }, [activeTemplate, channels])
 
-    return { channels: selected, missing, groups }
-  }, [activePreset, channelPresetGroups, channels])
-
-  function saveChannelWorkspace(presets: ChannelPreset[], groups: Record<string, ChannelPresetGroup[]>) {
-    const nextPresets = presets.length ? presets : cloneChannelPresets()
-    setChannelPresets(nextPresets)
-    setChannelPresetGroups(groups)
-    saveStoredChannelPresets(nextPresets)
-    saveStoredPresetGroups(groups)
-    const nextActive = nextPresets.some((preset) => preset.id === activePresetId) ? activePresetId : nextPresets[0].id
-    setActivePresetId(nextActive)
-  }
-
-  function saveTemplateFromLabels(name: string, labels: string[]) {
-    const uniqueLabels = [...new Set(labels.filter(Boolean))]
-    if (!name.trim() || uniqueLabels.length === 0) return
-    const next = [...templates, { id: makeTemplateId(), name: name.trim(), channels: uniqueLabels }]
+  function saveAllTemplates(next: Template[]) {
     setTemplates(next)
     persistTemplates(next)
+    if (activeTemplateId && !next.some((t) => t.id === activeTemplateId)) setActiveTemplateId(next[0]?.id ?? null)
   }
 
   // Load annotations whenever the active log changes.
@@ -897,6 +552,11 @@ export const Dashboard = forwardRef<
     if (activeLog) setAnnotations(loadAnnotations(activeLog.fileName))
     else setAnnotations([])
   }, [activeLog])
+
+  function analysisDefaults(log: ParsedLog): Set<string> {
+    const general = templatesRef.current.find((t) => t.name.toLowerCase() === "general") ?? templatesRef.current[0] ?? null
+    return defaultAnalysisLabels(log, mobileViewport || isMobileViewportNow(), general)
+  }
 
   function scrollMainToTop(behavior: ScrollBehavior = "auto") {
     if (typeof window === "undefined") return
@@ -913,12 +573,31 @@ export const Dashboard = forwardRef<
 
   function saveSession() {
     if (!activeLog) return
-    sessionsRef.current.set(activeLog.fileName, { hidden, domain, zoom, collapsed, cursorT, mobileAnalysisLabels })
+    const viewWindows = { ...viewWindowsRef.current, [view]: { domain, zoom } }
+    sessionsRef.current.set(logKey(activeLog), { hidden, domain, zoom, collapsed, cursorT, analysisLabels, viewWindows })
+  }
+
+  /** Restore a saved session; the current view's own window wins. */
+  function restoreSession(target: ParsedLog, s: Session, forView: ViewMode) {
+    viewWindowsRef.current = { ...(s.viewWindows ?? {}) }
+    const w = s.viewWindows?.[forView]
+    const valid = w && w.domain[0] >= 0 && w.domain[1] <= target.duration + 0.01 && w.domain[1] > w.domain[0]
+    setHidden(s.hidden)
+    if (valid) {
+      setDomain(w.domain)
+      setZoom(w.zoom)
+    } else {
+      setDomain([0, target.duration])
+      setZoom(100)
+    }
+    setCollapsed(s.collapsed)
+    setCursorT(s.cursorT)
+    setAnalysisLabels(s.analysisLabels ?? analysisDefaults(target))
   }
 
   function applyDefaults(log: ParsedLog) {
     setHidden(defaultHidden(log, mobileViewport || isMobileViewportNow()))
-    setMobileAnalysisLabels(defaultMobileAnalysisLabels(log))
+    setAnalysisLabels(analysisDefaults(log))
     setCollapsed(new Set())
     viewWindowsRef.current = {} // per-view windows don't carry across files
     resetView(log.duration)
@@ -961,33 +640,16 @@ export const Dashboard = forwardRef<
     setShowCloudLogs(false)
   }
 
-  function loadSample() {
-    setLogs([SAMPLE_LOG])
-    setActiveIndex(0)
-    setError(null)
-    setQuery("")
-    applyDefaults(SAMPLE_LOG)
-  }
-
   function selectLog(i: number) {
     if (i < 0 || i >= logs.length) return
     if (i === activeIndex) return
     saveSession()
-    viewWindowsRef.current = {} // reset per-view windows for the newly active file
     const target = logs[i]
     setActiveIndex(i)
-    const s = sessionsRef.current.get(target.fileName)
-    if (s) {
-      // Resume where the user left off on this file.
-      setHidden(s.hidden)
-      setDomain(s.domain)
-      setZoom(s.zoom)
-      setCollapsed(s.collapsed)
-      setCursorT(s.cursorT)
-      setMobileAnalysisLabels(s.mobileAnalysisLabels ?? defaultMobileAnalysisLabels(target))
-    } else {
-      applyDefaults(target)
-    }
+    const s = sessionsRef.current.get(logKey(target))
+    // Resume where the user left off on this file (its own window for every view).
+    if (s) restoreSession(target, s, view)
+    else applyDefaults(target)
   }
 
   function switchLoadedLog(delta: -1 | 1) {
@@ -1003,7 +665,7 @@ export const Dashboard = forwardRef<
   }
 
   function removeLog(i: number) {
-    sessionsRef.current.delete(logs[i].fileName)
+    sessionsRef.current.delete(logKey(logs[i]))
     const next = logs.filter((_, idx) => idx !== i)
     setLogs(next)
     if (next.length === 0) {
@@ -1018,18 +680,13 @@ export const Dashboard = forwardRef<
     const ni = Math.min(activeIndex, next.length - 1)
     setActiveIndex(ni)
     const target = next[ni]
-    const s = sessionsRef.current.get(target.fileName)
+    const s = sessionsRef.current.get(logKey(target))
     if (s && nextView !== "compare") {
-      setHidden(s.hidden)
-      setDomain(s.domain)
-      setZoom(s.zoom)
-      setCollapsed(s.collapsed)
-      setCursorT(s.cursorT)
-      setMobileAnalysisLabels(s.mobileAnalysisLabels ?? defaultMobileAnalysisLabels(target))
+      restoreSession(target, s, nextView)
     } else {
       const dur = nextView === "compare" && next.length > 1 ? Math.max(...next.map((l) => l.duration)) : target.duration
       setHidden(defaultHidden(target, mobileViewport || isMobileViewportNow()))
-      setMobileAnalysisLabels(defaultMobileAnalysisLabels(target))
+      setAnalysisLabels(analysisDefaults(target))
       setCollapsed(new Set())
       resetView(dur)
     }
@@ -1071,7 +728,7 @@ export const Dashboard = forwardRef<
   }
   // Distribute a template's channels across all 3 plot areas (1-3, 4-6, 7-9).
   function applyTemplateToCompare(t: Template) {
-    const c = t.channels
+    const c = resolveTemplateLabels(t, channels.map((ch) => ch.label))
     setCompareAreas([c.slice(0, 3), c.slice(3, 6), c.slice(6, 9)])
   }
   function setFileOffset(name: string, offset: number) {
@@ -1098,12 +755,51 @@ export const Dashboard = forwardRef<
   }
 
   function setWindow(start: number, end: number) {
-    const s = Math.max(0, +start.toFixed(2))
-    const e = Math.min(duration, +end.toFixed(2))
+    const minWidth = duration / (MAX_ZOOM / 100)
+    let s = Math.max(0, start)
+    let e = Math.min(duration, end)
+    if (e - s < minWidth) {
+      const mid = (s + e) / 2
+      s = Math.max(0, mid - minWidth / 2)
+      e = Math.min(duration, s + minWidth)
+    }
+    s = +s.toFixed(3)
+    e = +e.toFixed(3)
     if (e <= s) return
     setDomain([s, e])
     setZoom(Math.round((duration / (e - s)) * 100))
   }
+
+  // Keyboard time zoom: keeps the cursor (if inside the window) where it is on screen.
+  function zoomBy(factor: number) {
+    if (duration <= 0) return
+    const width = domain[1] - domain[0] || duration
+    const minWidth = duration / (MAX_ZOOM / 100)
+    const nextW = Math.min(duration, Math.max(minWidth, width / factor))
+    const anchor = cursorT != null && cursorT >= domain[0] && cursorT <= domain[1] ? cursorT : (domain[0] + domain[1]) / 2
+    const rel = width > 0 ? (anchor - domain[0]) / width : 0.5
+    const start = Math.max(0, Math.min(duration - nextW, anchor - rel * nextW))
+    setWindow(start, start + nextW)
+  }
+
+  // Keyboard pan by a fraction of the current window width.
+  function panBy(fraction: number) {
+    const width = domain[1] - domain[0]
+    if (width <= 0 || width >= duration) return
+    const start = Math.max(0, Math.min(duration - width, domain[0] + width * fraction))
+    setDomain([+start.toFixed(3), +(start + width).toFixed(3)])
+  }
+
+  // Stable callbacks for the memoized charts.
+  const setWindowRef = useRef(setWindow)
+  setWindowRef.current = setWindow
+  // A drag-selection is a one-shot: set the window, then leave Window mode.
+  const selectWindow = useCallback((start: number, end: number) => {
+    setWindowRef.current(start, end)
+    setWindowMode(false)
+  }, [])
+  const fitWindowRef = useRef<() => void>(() => {})
+  const fitWindowStable = useCallback(() => fitWindowRef.current(), [])
 
   const toggleChannel = useCallback((key: string) => {
     setHidden((prev) => {
@@ -1114,27 +810,31 @@ export const Dashboard = forwardRef<
     })
   }, [])
 
-  const toggleChannelByLabel = useCallback(
-    (label: string) => {
-      const target = channels.find((channel) => channel.label === label)
-      if (target && mobileViewport && view === "plot" && hidden.has(target.key) && channels.length - hidden.size >= MOBILE_ANALYSIS_MAX_CHANNELS) return
-      if (target) toggleChannel(target.key)
+  // Replace the plotted set (templates, "Deselect all"); order follows the request.
+  const setVisibleLabels = useCallback(
+    (labels: string[]) => {
+      const byLower = new Map(channels.map((c) => [c.label.toLowerCase(), c.label]))
+      const wanted = [...new Set(labels.map((label) => byLower.get(label.toLowerCase())).filter((l): l is string => Boolean(l)))]
+      setAnalysisLabels(new Set(mobileViewport ? wanted.slice(0, MOBILE_ANALYSIS_MAX_CHANNELS) : wanted))
     },
-    [channels, hidden, mobileViewport, toggleChannel, view],
+    [channels, mobileViewport],
   )
 
-  const toggleMobileAnalysisLabel = useCallback((label: string) => {
-    setMobileAnalysisLabels((current) => {
-      const next = new Set(current)
-      if (next.has(label)) {
-        next.delete(label)
+  const toggleAnalysisLabel = useCallback(
+    (label: string) => {
+      setAnalysisLabels((current) => {
+        const next = new Set(current)
+        if (next.has(label)) {
+          next.delete(label)
+          return next
+        }
+        if (mobileViewport && next.size >= MOBILE_ANALYSIS_MAX_CHANNELS) return current
+        next.add(label)
         return next
-      }
-      if (next.size >= MOBILE_ANALYSIS_MAX_CHANNELS) return current
-      next.add(label)
-      return next
-    })
-  }, [])
+      })
+    },
+    [mobileViewport],
+  )
 
   // Stable callbacks so memoized charts don't re-render while searching.
   const toggleCollapse = useCallback((key: string) => {
@@ -1211,13 +911,23 @@ export const Dashboard = forwardRef<
   }
 
   // --- Templates -----------------------------------------------------------
+  // The Analysis Plot has its own line set; everything else edits the matrix set.
+  function currentViewLabels(): string[] {
+    return view === "plot" ? analysisChannels.map((c) => c.label) : visibleChannels.map((c) => c.label)
+  }
+
   function applyTemplate(t: Template) {
-    const labels = new Set(t.channels)
+    const resolved = resolveTemplateLabels(t, channels.map((c) => c.label))
+    if (view === "plot") {
+      setVisibleLabels(resolved)
+      return
+    }
+    const labels = new Set(resolved)
     setHidden(new Set(channels.filter((c) => !labels.has(c.label)).map((c) => c.key)))
   }
 
   function saveTemplate(name: string) {
-    const next = [...templates, { id: makeTemplateId(), name, channels: visibleChannels.map((c) => c.label) }]
+    const next = [...templates, { id: makeTemplateId(), name, channels: currentViewLabels() }]
     setTemplates(next)
     persistTemplates(next)
   }
@@ -1235,9 +945,31 @@ export const Dashboard = forwardRef<
   }
 
   // Overwrite a template's channels with the current visible selection.
+  // Overwrite a template's channels with the current selection, keeping its
+  // graph layout where the channels are unchanged (new channels get auto graphs).
   function updateTemplate(id: string) {
-    const labels = visibleChannels.map((c) => c.label)
-    const next = templates.map((t) => (t.id === id ? { ...t, channels: labels } : t))
+    const labels = currentViewLabels()
+    const all = channels.map((c) => c.label)
+    const keep = new Set(labels)
+    const next = templates.map((t) => {
+      if (t.id !== id) return t
+      if (!t.groups?.length) return { ...t, channels: labels }
+      const groups = t.groups
+        .map((g) => ({
+          ...g,
+          channels: g.channels.filter((entry) => {
+            const hit = resolveEntry(entry, all)
+            return hit.length === 0 || hit.some((l) => keep.has(l))
+          }),
+        }))
+        .filter((g) => g.channels.length)
+      const covered = new Set(groups.flatMap((g) => g.channels.flatMap((e) => resolveEntry(e, all))))
+      const extra = labels.filter((l) => !covered.has(l))
+      const extraGroups = extra.length
+        ? templateGroups({ id: t.id + "-new", name: "", channels: extra }).map((g) => ({ ...g, id: g.id + "-" + Date.now().toString(36) }))
+        : []
+      return withChannelsFromGroups({ ...t, channels: [], groups: [...groups, ...extraGroups] })
+    })
     setTemplates(next)
     persistTemplates(next)
   }
@@ -1265,9 +997,25 @@ export const Dashboard = forwardRef<
   }
 
   const visibleChannels = useMemo(() => channels.filter((c) => !hidden.has(c.key)), [channels, hidden])
-  const mobileAnalysisChannels = useMemo(
-    () => channels.filter((channel) => mobileAnalysisLabels.has(channel.label)).slice(0, MOBILE_ANALYSIS_MAX_CHANNELS),
-    [channels, mobileAnalysisLabels],
+  // Same unique colours the Channels graphs use (deterministic in preset order).
+  const presetColors = useMemo(() => {
+    const overrides: Record<string, string | undefined> = {}
+    for (const [label, style] of Object.entries(analysisTransforms)) if (style.color) overrides[label] = style.color
+    return assignLineColors(
+      presetMatch.channels.map((c) => c.label),
+      overrides,
+    )
+  }, [presetMatch, analysisTransforms])
+  const analysisHidden = useMemo(
+    () => new Set(channels.filter((c) => !analysisLabels.has(c.label)).map((c) => c.key)),
+    [channels, analysisLabels],
+  )
+  const analysisChannels = useMemo(
+    () => {
+      const list = channels.filter((channel) => analysisLabels.has(channel.label))
+      return mobileViewport ? list.slice(0, MOBILE_ANALYSIS_MAX_CHANNELS) : list
+    },
+    [channels, analysisLabels, mobileViewport],
   )
   // Quick-search overrides the checklist for the Signal Matrix: type to view any plot fast.
   const matrixChannels = useMemo(() => {
@@ -1322,8 +1070,15 @@ export const Dashboard = forwardRef<
 
   function resetAnalysisView() {
     resetView(duration)
-    if (activeLog && mobileViewport) setMobileAnalysisLabels(defaultMobileAnalysisLabels(activeLog))
-    setAnalysisTransforms({})
+    if (activeLog) setAnalysisLabels(analysisDefaults(activeLog))
+    // Reset scale/shift, but keep the colours and line weights the user picked.
+    setAnalysisTransforms((prev) => {
+      const next: Record<string, Transform> = {}
+      for (const [label, style] of Object.entries(prev)) {
+        if (style.color || style.width != null) next[label] = { gain: 1, offset: 0, color: style.color, width: style.width }
+      }
+      return next
+    })
     setAnalysisFocus(null)
     setAnalysisMarkPeaks(false)
     setAnalysisSplit(false)
@@ -1339,6 +1094,12 @@ export const Dashboard = forwardRef<
     setZoom(100)
     setDomain([0, duration])
   }
+  fitWindowRef.current = fitWindow
+
+  // Typing in quick search always shows the matches from the top of the list.
+  useEffect(() => {
+    if (matrixQuery) mainRef.current?.scrollTo({ top: 0 })
+  }, [matrixQuery])
 
   function renderControlPanel(onScrollToVisibleChannel = scrollToChannel, mobile = false) {
     return (
@@ -1350,6 +1111,8 @@ export const Dashboard = forwardRef<
         onSyncChange={setSync}
         annotate={annotate}
         onAnnotateChange={setAnnotate}
+        windowMode={windowMode}
+        onWindowModeChange={setWindowMode}
         onReset={resetControls}
         onFit={fitWindow}
         windowSlot={
@@ -1367,11 +1130,18 @@ export const Dashboard = forwardRef<
           ) : null
         }
         channels={channelItems}
-        hidden={hidden}
-        onToggleChannel={toggleChannel}
+        hidden={view === "plot" ? analysisHidden : hidden}
+        onToggleChannel={
+          view === "plot"
+            ? (key: string) => {
+                const target = channels.find((c) => c.key === key)
+                if (target) toggleAnalysisLabel(target.label)
+              }
+            : toggleChannel
+        }
         onScrollToChannel={onScrollToVisibleChannel}
-        onShowAll={() => setHidden(new Set())}
-        onHideAll={() => setHidden(new Set(channels.map((c) => c.key)))}
+        onShowAll={() => (view === "plot" ? setVisibleLabels(channels.map((c) => c.label)) : setHidden(new Set()))}
+        onHideAll={() => (view === "plot" ? setAnalysisLabels(new Set()) : setHidden(new Set(channels.map((c) => c.key))))}
         templates={templates}
         onApplyTemplate={applyTemplate}
         onSaveTemplate={saveTemplate}
@@ -1385,22 +1155,76 @@ export const Dashboard = forwardRef<
     )
   }
 
+  // Arrow keys walk the value cursor sample-by-sample through the active log.
+  // If it leaves the visible window, the window follows.
+  function moveCursor(dir: -1 | 1) {
+    const source = (comparing ? logs[0] : activeLog)?.signals[0]?.data
+    if (!source?.length || duration <= 0) return
+    if (!sync) setSync(true)
+    const width = domain[1] - domain[0]
+    let target: number
+    if (cursorT == null || cursorT < domain[0] || cursorT > domain[1]) {
+      target = (domain[0] + domain[1]) / 2
+      // snap to the nearest sample
+      let lo = 0
+      let hi = source.length - 1
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1
+        if (source[mid].t < target) lo = mid + 1
+        else hi = mid
+      }
+      target = source[lo].t
+    } else {
+      let lo = 0
+      let hi = source.length - 1
+      if (dir > 0) {
+        // first sample strictly after the cursor
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1
+          if (source[mid].t <= cursorT + 1e-9) lo = mid + 1
+          else hi = mid
+        }
+        target = source[lo].t > cursorT ? source[lo].t : cursorT
+      } else {
+        // last sample strictly before the cursor
+        while (lo < hi) {
+          const mid = (lo + hi + 1) >> 1
+          if (source[mid].t < cursorT - 1e-9) lo = mid
+          else hi = mid - 1
+        }
+        target = source[lo].t < cursorT ? source[lo].t : cursorT
+      }
+    }
+    setCursorT(target)
+    if (width > 0 && width < duration && (target < domain[0] || target > domain[1])) {
+      const start = Math.max(0, Math.min(duration - width, target - width / 2))
+      setDomain([+start.toFixed(3), +(start + width).toFixed(3)])
+    }
+  }
+
   const shortcuts: Shortcut[] = [
-    { key: "o", ctrl: true, description: "Open log", handler: () => openCsvDialog(loadFile) },
-    { key: "k", ctrl: true, description: "Search channels", handler: () => searchRef.current?.focus() },
-    { key: bindings.sync, description: "Toggle signal sync", handler: () => setSync((v) => !v) },
-    { key: bindings.annotate, description: "Toggle annotate mode", handler: () => setAnnotate((v) => !v) },
-    { key: bindings.viewMatrix, description: "Signal Matrix view", handler: () => changeView("matrix") },
-    { key: bindings.viewPlot, description: "Analysis Plot view", handler: () => changeView("plot") },
-    { key: bindings.viewChannels, description: "Channels view", handler: () => !mobileViewport && changeView("channels") },
-    { key: bindings.viewCompare, description: "Compare view", handler: () => !mobileViewport && changeView("compare") },
-    { key: bindings.togglePick, description: "Toggle readout picking", handler: () => setReadoutPicking((value) => !value) },
-    { key: bindings.editChannels, description: "Edit Channels layout", handler: () => !mobileViewport && view === "channels" && setChannelsEditOpen(true) },
-    { key: bindings.reset, description: "Reset view", handler: resetControls },
-    { key: bindings.toggleGrid, description: "Toggle grid lines", handler: () => setDisplay((d) => ({ ...d, showGrid: !d.showGrid })) },
-    { key: bindings.lockCompare, description: "Lock alignment (Compare)", handler: () => setCompareLocked((v) => !v) },
+    { ...bindings.openLog, description: "Open log", handler: () => openCsvDialog(loadFile) },
+    { ...bindings.searchChannels, description: "Search channels", handler: () => searchRef.current?.focus() },
+    { ...bindings.sync, description: "Toggle signal sync", handler: () => setSync((v) => !v) },
+    { ...bindings.annotate, description: "Toggle annotate mode", handler: () => setAnnotate((v) => !v) },
+    { ...bindings.viewMatrix, description: "Signal Matrix view", handler: () => changeView("matrix") },
+    { ...bindings.viewPlot, description: "Analysis Plot view", handler: () => changeView("plot") },
+    { ...bindings.viewChannels, description: "Channels view", handler: () => !mobileViewport && changeView("channels") },
+    { ...bindings.viewCompare, description: "Compare view", handler: () => !mobileViewport && changeView("compare") },
+    { ...bindings.togglePick, description: "Toggle readout picking", handler: () => setReadoutPicking((value) => !value) },
+    { ...bindings.editChannels, description: "Edit templates", handler: () => !mobileViewport && view === "channels" && setChannelsEditOpen(true) },
+    { ...bindings.reset, description: "Reset view", handler: resetControls },
+    { ...bindings.toggleGrid, description: "Toggle grid lines", handler: () => setDisplay((d) => ({ ...d, showGrid: !d.showGrid })) },
+    { ...bindings.lockCompare, description: "Lock alignment (Compare)", handler: () => setCompareLocked((v) => !v) },
+    { ...bindings.windowMode, description: "Toggle window mode", handler: () => setWindowMode((v) => !v) },
+    { ...bindings.zoomIn, description: "Zoom time window in", handler: () => zoomBy(1.5) },
+    { ...bindings.zoomOut, description: "Zoom time window out", handler: () => zoomBy(1 / 1.5) },
+    { ...bindings.cursorLeft, description: "Move value cursor left", handler: () => moveCursor(-1) },
+    { ...bindings.cursorRight, description: "Move value cursor right", handler: () => moveCursor(1) },
+    { ...bindings.panLeft, description: "Shift time window left", handler: () => panBy(-0.2) },
+    { ...bindings.panRight, description: "Shift time window right", handler: () => panBy(0.2) },
     {
-      key: bindings.quickSearch,
+      ...bindings.quickSearch,
       description: "Quick search (Signal Matrix)",
       handler: () => {
         if (comparing || view !== "matrix") return
@@ -1408,18 +1232,10 @@ export const Dashboard = forwardRef<
         setTimeout(() => quickRef.current?.focus(), 0)
       },
     },
+    { ...bindings.previousFile, description: "Previous loaded / reference file", handler: () => switchLoadedLog(-1) },
+    { ...bindings.cycleFile, description: "Next loaded / reference file", handler: () => switchLoadedLog(1) },
     {
-      key: bindings.previousFile,
-      description: "Previous loaded / reference file",
-      handler: () => switchLoadedLog(-1),
-    },
-    {
-      key: bindings.cycleFile,
-      description: "Next loaded / reference file",
-      handler: () => switchLoadedLog(1),
-    },
-    {
-      key: bindings.heightCycle,
+      ...bindings.heightCycle,
       description: "Cycle chart height (Signal Matrix)",
       handler: () =>
         setDisplay((d) => {
@@ -1427,8 +1243,8 @@ export const Dashboard = forwardRef<
           return { ...d, height: order[(order.indexOf(d.height) + 1) % order.length] }
         }),
     },
-    { key: "Home", description: "Scroll to top", handler: () => mainRef.current?.scrollTo({ top: 0, behavior: "smooth" }) },
-    { key: "?", shift: true, description: "Toggle keyboard shortcuts", handler: () => !mobileViewport && setShowShortcuts((v) => !v) },
+    { ...bindings.scrollTop, description: "Scroll to top", handler: () => mainRef.current?.scrollTo({ top: 0, behavior: "smooth" }) },
+    { ...bindings.shortcutsHelp, description: "Toggle keyboard shortcuts", handler: () => !mobileViewport && setShowShortcuts((v) => !v) },
     {
       key: "Escape",
       description: "Close dialogs / exit annotate",
@@ -1442,6 +1258,7 @@ export const Dashboard = forwardRef<
         else if (annotationDraft) setAnnotationDraft(null)
         else if (annotate) setAnnotate(false)
         else if (quickOpen) landOnChannel()
+        else if (windowMode) setWindowMode(false)
       },
     },
   ]
@@ -1454,6 +1271,7 @@ export const Dashboard = forwardRef<
         (view === "plot" || view === "channels") && "mobile-analysis-mode",
         view === "matrix" && "mobile-matrix-mode",
         hasLogs && view === "matrix" && "has-mobile-simple-actions",
+        mobileSearchActive && "mobile-search-active",
       )}
     >
       <Rail
@@ -1559,6 +1377,7 @@ export const Dashboard = forwardRef<
                 email={displayEmail}
                 firstLoginAt={accountUser?.firstLoginAt}
                 expiresAt={accountUser?.licenseExpiresAt}
+                isOwner={accountUser?.isOwner}
                 compact
               />
             </span>
@@ -1572,6 +1391,18 @@ export const Dashboard = forwardRef<
               >
                 <Cloud className="size-3.5" />
                 <span className="octane-action-label hidden xl:inline">Cloud Logs</span>
+              </button>
+            )}
+            {canUseCloudLogs && accountUser && (
+              <button
+                type="button"
+                onClick={() => setShowLicenses(true)}
+                title="Licenses (owner)"
+                aria-label="Licenses"
+                className="hidden items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-secondary lg:inline-flex"
+              >
+                <KeyRound className="size-3.5" />
+                <span className="octane-action-label hidden xl:inline">Licenses</span>
               </button>
             )}
             {hasLogs && (
@@ -1632,7 +1463,7 @@ export const Dashboard = forwardRef<
         {!hasLogs ? (
           <div className="flex flex-1 items-center justify-center p-4 sm:p-6">
             <div className="w-full max-w-xl">
-              <UploadZone onFile={loadFile} onSample={loadSample} loading={loading} error={error} />
+              <UploadZone onFile={loadFile} loading={loading} error={error} />
             </div>
           </div>
         ) : (
@@ -1684,10 +1515,31 @@ export const Dashboard = forwardRef<
                 )}
 
                 {view !== "channels" && <div className="analysis-heading mt-5 mb-3 flex flex-wrap items-center justify-between gap-2 sm:gap-3">
-                  <h2 className="shrink-0 text-sm font-semibold text-foreground">
-                    {view === "plot" ? "Analysis Plot" : comparing ? "Comparison" : "Signal Matrix"}
-                  </h2>
-                  {!comparing && view !== "plot" && (
+                  <div className="flex shrink-0 items-center gap-3">
+                    <h2 className="text-sm font-semibold text-foreground">
+                      {view === "plot" ? "Analysis Plot" : comparing ? "Comparison" : "Signal Matrix"}
+                    </h2>
+                    {comparing && (
+                      <div className="inline-flex items-center rounded-md border border-border bg-card p-0.5" role="tablist" aria-label="Compare layout">
+                        {(["matrix", "areas"] as const).map((mode) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            role="tab"
+                            aria-selected={compareMode === mode}
+                            onClick={() => setCompareMode(mode)}
+                            className={cn(
+                              "h-7 rounded px-2.5 text-[11px] font-semibold transition-colors",
+                              compareMode === mode ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                            )}
+                          >
+                            {mode === "matrix" ? "Signal matrix" : "Overlay areas"}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {(!comparing || compareMode === "matrix") && view !== "plot" && (
                     <div className="hidden flex-1 items-center justify-end gap-2 lg:flex">
                       {quickOpen ? (
                         <div className="relative w-full max-w-xs">
@@ -1739,7 +1591,7 @@ export const Dashboard = forwardRef<
                   </span>
                 </div>}
 
-                {comparing ? (
+                {comparing && compareMode === "areas" ? (
                   <CompareView
                     logs={logs}
                     areas={compareAreas}
@@ -1762,7 +1614,7 @@ export const Dashboard = forwardRef<
                 ) : view === "plot" ? (
                   <div className="analysis-plot-shell flex min-h-0 flex-1 flex-col pb-20 lg:pb-4">
                     <CombinedChart
-                      series={(mobileViewport ? mobileAnalysisChannels : visibleChannels).map((c) => c.series[0])}
+                      series={analysisChannels.map((c) => c.series[0])}
                       availableSeries={channels.map((c) => c.series[0])}
                       domain={domain}
                       sync={sync}
@@ -1788,7 +1640,12 @@ export const Dashboard = forwardRef<
                       onAddAnnotation={openAnnotation}
                       onFitWindow={fitWindow}
                       onResetPlot={resetAnalysisView}
-                      onToggleChannelLabel={mobileViewport ? toggleMobileAnalysisLabel : toggleChannelByLabel}
+                      onToggleChannelLabel={toggleAnalysisLabel}
+                      onSetVisibleLabels={setVisibleLabels}
+                      windowMode={windowMode}
+                      onWindowModeChange={setWindowMode}
+                      onWindowSelect={selectWindow}
+                      maxLines={MOBILE_ANALYSIS_MAX_CHANNELS}
                       timelineSlot={
                         duration > 0 && overview.length > 0 ? (
                           <RangeBrush
@@ -1813,7 +1670,7 @@ export const Dashboard = forwardRef<
                       <div className="shrink-0 border-b border-border bg-card/80 px-3 py-3">
                         <div className="mb-3 flex items-center justify-between gap-3">
                           <div className="min-w-0">
-                            <h3 className="text-sm font-semibold text-foreground">Preset Diagnostics</h3>
+                            <h3 className="text-sm font-semibold text-foreground">Template Diagnostics</h3>
                             <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
                               {activePreset.name} - {presetMatch.groups.length} graph groups - {presetMatch.channels.length} matched channels
                             </p>
@@ -1825,7 +1682,7 @@ export const Dashboard = forwardRef<
                               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                             >
                               <Plus className="size-3.5" />
-                              Edit channels
+                              Edit templates
                             </button>
                             <button
                               type="button"
@@ -1841,6 +1698,21 @@ export const Dashboard = forwardRef<
                             >
                               <MousePointerClick className="size-3.5" />
                               Pick
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setWindowMode((value) => !value)}
+                              aria-pressed={windowMode}
+                              title="Drag on a graph to set the shared time window (W)"
+                              className={cn(
+                                "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors",
+                                windowMode
+                                  ? "border-primary bg-primary/15 text-foreground"
+                                  : "border-border bg-card text-muted-foreground hover:bg-secondary hover:text-foreground",
+                              )}
+                            >
+                              <MoveHorizontal className="size-3.5" />
+                              Window
                             </button>
                             <button
                               type="button"
@@ -1866,24 +1738,24 @@ export const Dashboard = forwardRef<
                             </button>
                           </div>
                         </div>
-                        <div className="octane-channel-tabs flex flex-wrap gap-1.5">
-                          {channelPresets.map((preset) => (
+                        <div className="octane-channel-tabs flex flex-wrap items-center gap-1.5">
+                          {templates.map((template) => (
                             <button
-                              key={preset.id}
+                              key={template.id}
                               type="button"
                               onClick={() => {
-                                setActivePresetId(preset.id)
+                                setActiveTemplateId(template.id)
                                 setChannelsPaneQuery("")
                               }}
-                              aria-pressed={activePreset.id === preset.id}
+                              aria-pressed={activePreset.id === template.id}
                               className={cn(
                                 "h-8 rounded-md border px-3 text-xs font-medium transition-colors",
-                                activePreset.id === preset.id
+                                activePreset.id === template.id
                                   ? "border-primary bg-primary/15 text-foreground shadow-[inset_0_-2px_0_var(--primary)]"
                                   : "border-border bg-background/60 text-muted-foreground hover:bg-secondary hover:text-foreground",
                               )}
                             >
-                              {preset.name}
+                              {template.name}
                             </button>
                           ))}
                         </div>
@@ -1893,7 +1765,7 @@ export const Dashboard = forwardRef<
                         <div className="relative flex min-w-0 flex-1 flex-col">
                           {presetMatch.channels.length === 0 ? (
                             <div className="flex min-h-0 flex-1 items-center justify-center px-4 text-center text-sm text-muted-foreground">
-                              No channels from the {activePreset.name} preset were found in this log.
+                              No channels from the {activePreset.name} template were found in this log.
                             </div>
                           ) : (
                             <CombinedChart
@@ -1923,6 +1795,9 @@ export const Dashboard = forwardRef<
                               modalOpen={showAbout || showShortcuts || showSettings || annotationDraft != null}
                               onCursorChange={setCursorT}
                               onAddAnnotation={openAnnotation}
+                              windowMode={windowMode}
+                              onWindowSelect={selectWindow}
+                              onFitWindow={fitWindowStable}
                             />
                           )}
                         </div>
@@ -1930,6 +1805,7 @@ export const Dashboard = forwardRef<
                         {channelsPaneOpen && (
                           <ChannelsStatsPane
                             presetName={activePreset.name}
+                            colorOf={presetColors}
                             channels={presetMatch.channels}
                             allChannels={channels}
                             cursorT={sync ? cursorT : null}
@@ -1952,13 +1828,14 @@ export const Dashboard = forwardRef<
                       </div>
                     </div>
 
+                    {mobileViewport && (
                     <div className="flex min-h-0 flex-1 flex-col gap-3 lg:hidden">
                       <div className="flex gap-1 overflow-x-auto rounded-lg border border-border bg-card/50 p-1">
-                        {channelPresets.map((preset) => (
+                        {templates.map((preset) => (
                           <button
                             key={preset.id}
                             type="button"
-                            onClick={() => setActivePresetId(preset.id)}
+                            onClick={() => setActiveTemplateId(preset.id)}
                             aria-pressed={activePreset.id === preset.id}
                             className={cn(
                               "h-8 shrink-0 rounded-md px-3 text-xs font-medium transition-colors",
@@ -1981,7 +1858,7 @@ export const Dashboard = forwardRef<
 
                       {presetMatch.channels.length === 0 ? (
                         <div className="flex min-h-[18rem] items-center justify-center rounded-xl border border-dashed border-border px-4 py-16 text-center text-sm text-muted-foreground">
-                          No channels from the {activePreset.name} preset were found in this log.
+                          No channels from the {activePreset.name} template were found in this log.
                         </div>
                       ) : (
                         <CombinedChart
@@ -2012,6 +1889,9 @@ export const Dashboard = forwardRef<
                           onAddAnnotation={openAnnotation}
                           onFitWindow={fitWindow}
                           onResetPlot={resetAnalysisView}
+                          windowMode={windowMode}
+                          onWindowModeChange={setWindowMode}
+                          onWindowSelect={selectWindow}
                           timelineSlot={
                             duration > 0 && overview.length > 0 ? (
                               <RangeBrush
@@ -2029,6 +1909,7 @@ export const Dashboard = forwardRef<
                         />
                       )}
                     </div>
+                    )}
                   </div>
                 ) : matrixChannels.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-border py-16 text-center text-sm text-muted-foreground">
@@ -2037,8 +1918,11 @@ export const Dashboard = forwardRef<
                 ) : (
                   <div className="flex flex-col gap-4 pb-20 lg:pb-4">
                     {matrixChannels.map((c) => (
-                      <div
+                      <LazyMount
                         key={c.key}
+                        id={`chart-${c.key}`}
+                        root={mainRef}
+                        estimate={collapsed.has(c.key) ? 60 : CHART_INTRINSIC_HEIGHT[display.height] + (c.series.length > 1 ? 28 : 0)}
                         className={cn(
                           "rounded-xl transition-shadow",
                           matrixHighlight === c.key && "ring-2 ring-primary ring-offset-2 ring-offset-background",
@@ -2046,7 +1930,6 @@ export const Dashboard = forwardRef<
                       >
                       <SignalChart
                         channelKey={c.key}
-                        domId={`chart-${c.key}`}
                         label={c.label}
                         unit={c.unit}
                         decimals={c.decimals}
@@ -2063,12 +1946,24 @@ export const Dashboard = forwardRef<
                         onToggleCollapse={toggleCollapse}
                         onCursorChange={setCursorT}
                         onAddAnnotation={openAnnotation}
+                        windowMode={windowMode}
+                        onWindowSelect={selectWindow}
+                        onWindowReset={fitWindowStable}
                       />
-                      </div>
+                      </LazyMount>
                     ))}
                   </div>
                 )}
               </main>
+              {(comparing ? logs[0] : activeLog) && (
+                <FlagStrip
+                  signals={(comparing ? logs[0] : activeLog)!.signals}
+                  cursorT={sync ? cursorT : null}
+                  domain={domain}
+                  timeUnit={timeUnit}
+                  onJump={jumpToTime}
+                />
+              )}
             </div>
             </div>
           </>
@@ -2085,6 +1980,7 @@ export const Dashboard = forwardRef<
         onClose={() => setShowSettings(false)}
       />
       <MetadataModal open={showMetadata} log={activeLog ?? null} onClose={() => setShowMetadata(false)} />
+      <LicensesDialog open={showLicenses} onClose={() => setShowLicenses(false)} />
       <CloudLogsDialog
         open={showCloudLogs}
         activeLog={activeLog ?? null}
@@ -2092,27 +1988,28 @@ export const Dashboard = forwardRef<
         onLoad={loadCloudParsedLog}
       />
       <ChannelsHelpDialog open={channelsHelpOpen} onClose={() => setChannelsHelpOpen(false)} />
-      <ChannelsPresetEditor
+      <TemplateEditor
         open={channelsEditOpen}
-        presets={channelPresets}
-        groupsByPreset={channelPresetGroups}
-        activePresetId={activePreset.id}
-        defaultPresets={defaultChannelPresets}
-        defaultGroupsByPreset={defaultChannelGroups}
-        channels={channels}
         templates={templates}
-        onSave={saveChannelWorkspace}
-        onSaveTemplate={saveTemplateFromLabels}
+        activeTemplateId={activeTemplate?.id ?? null}
+        channels={channels.map((c) => ({ key: c.key, label: c.label, unit: c.unit }))}
+        onSave={saveAllTemplates}
         onClose={() => setChannelsEditOpen(false)}
       />
       {hasLogs && view === "matrix" && (
-        <div className="octane-mobile-quick-search fixed inset-x-3 z-40 lg:hidden">
+        <div className={cn("octane-mobile-quick-search fixed inset-x-3 z-40 lg:hidden", mobileSearchActive && "is-active")}>
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <input
-              ref={quickRef}
+              ref={mobileQuickRef}
               value={matrixQuery}
-              onFocus={() => setQuickOpen(true)}
+              enterKeyHint="search"
+              onFocus={() => {
+                setQuickOpen(true)
+                setMobileSearchActive(true)
+                mainRef.current?.scrollTo({ top: 0 })
+              }}
+              onBlur={() => setMobileSearchActive(false)}
               onChange={(event) => {
                 setQuickOpen(true)
                 setMatrixQuery(event.target.value)
@@ -2121,6 +2018,7 @@ export const Dashboard = forwardRef<
                 if (event.key === "Enter" || event.key === "Escape") {
                   event.preventDefault()
                   event.stopPropagation()
+                  event.currentTarget.blur()
                   landOnChannel()
                 }
               }}
@@ -2130,10 +2028,10 @@ export const Dashboard = forwardRef<
             {matrixQuery && (
               <button
                 type="button"
+                onPointerDown={(event) => event.preventDefault()}
                 onClick={() => {
                   setMatrixQuery("")
-                  setQuickOpen(false)
-                  quickRef.current?.focus()
+                  mobileQuickRef.current?.focus()
                 }}
                 aria-label="Clear quick search"
                 className="absolute right-2 top-1/2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
@@ -2145,7 +2043,7 @@ export const Dashboard = forwardRef<
         </div>
       )}
       {hasLogs && view === "matrix" && (
-        <div className="octane-mobile-simple-actions fixed inset-x-0 z-40 grid grid-cols-4 gap-1 border-t border-border bg-background/95 px-2 py-2 backdrop-blur lg:hidden">
+        <div className="octane-mobile-simple-actions fixed inset-x-0 z-40 grid grid-cols-5 gap-1 border-t border-border bg-background/95 px-2 py-2 backdrop-blur lg:hidden">
           <button
             type="button"
             onClick={() => setSync((value) => !value)}
@@ -2156,12 +2054,22 @@ export const Dashboard = forwardRef<
           </button>
           <button
             type="button"
+            onClick={() => setWindowMode((value) => !value)}
+            aria-pressed={windowMode}
+            title="Drag across a plot to set the time window"
+            className={cn("octane-mobile-simple-button", windowMode && "is-active")}
+          >
+            <MoveHorizontal className="size-3.5" />
+            Window
+          </button>
+          <button
+            type="button"
             onClick={() => setMobileWindowOpen((value) => !value)}
             aria-pressed={mobileWindowOpen}
             className={cn("octane-mobile-simple-button", mobileWindowOpen && "is-active")}
           >
             <SlidersHorizontal className="size-3.5" />
-            Window
+            Range
           </button>
           <button type="button" onClick={resetControls} className="octane-mobile-simple-button">
             <RefreshCw className="size-3.5" />
@@ -2278,6 +2186,7 @@ export const Dashboard = forwardRef<
 
 function ChannelsStatsPane({
   presetName,
+  colorOf,
   channels,
   allChannels,
   cursorT,
@@ -2288,6 +2197,7 @@ function ChannelsStatsPane({
   onFocusChannel,
 }: {
   presetName: string
+  colorOf: Record<string, string>
   channels: Channel[]
   allChannels: Channel[]
   cursorT: number | null
@@ -2302,10 +2212,8 @@ function ChannelsStatsPane({
     if (!q) return true
     return channel.label.toLowerCase().includes(q) || channel.unit.toLowerCase().includes(q)
   })
-  const colorFor = (channel: Channel) => {
-    const idx = allChannels.findIndex((item) => item.label === channel.label)
-    return idx >= 0 ? plotColor(idx) : channel.series[0]?.color ?? "var(--muted-foreground)"
-  }
+  const colorFor = (channel: Channel) => colorOf[channel.label] ?? "var(--muted-foreground)"
+  const decoders = useFlagDecoders()
 
   return (
     <aside className="flex w-[22rem] shrink-0 flex-col border-l border-border bg-background/80 text-foreground">
@@ -2385,6 +2293,12 @@ function ChannelsStatsPane({
                   <span>min {fmtChannelValue(signal.min, channel.decimals)}</span>
                   <span>max {fmtChannelValue(signal.max, channel.decimals)}</span>
                 </span>
+                {(() => {
+                  const dec = decoderFor(channel.label, decoders)
+                  if (!dec || cursorT == null) return null
+                  const text = describe(dec, decodeValue(dec, stepValueAt(signal.data, cursorT)))
+                  return <span className="ml-4 text-[10px] leading-snug text-muted-foreground">{text}</span>
+                })()}
               </button>
             )
           })}
@@ -2402,8 +2316,8 @@ function ChannelsHelpDialog({ open, onClose }: { open: boolean; onClose: () => v
 
   const sections = [
     {
-      title: "Preset tabs",
-      body: "Each preset groups related channels into a few larger graphs so you can diagnose a system without scrolling through every signal.",
+      title: "Template tabs",
+      body: "Each tab is one of your templates (the same list the Analysis Plot and the phone picker use), split into a few graphs. Use Edit templates to change a template's channels or graphs.",
     },
     {
       title: "Graph values",
@@ -2425,7 +2339,7 @@ function ChannelsHelpDialog({ open, onClose }: { open: boolean; onClose: () => v
         <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">Octane Channels</p>
-            <h3 className="mt-1 text-lg font-semibold text-foreground">Using preset diagnostics</h3>
+            <h3 className="mt-1 text-lg font-semibold text-foreground">Using template diagnostics</h3>
           </div>
           <button
             type="button"
@@ -2446,645 +2360,6 @@ function ChannelsHelpDialog({ open, onClose }: { open: boolean; onClose: () => v
         </div>
         <div className="border-t border-border bg-card/50 px-5 py-3 text-xs text-muted-foreground">
           Shortcuts: `1-4` switch main views. In plots, `/` searches where available, `F` toggles fullscreen, and `Esc` clears focus or closes overlays.
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ChannelsPresetEditor({
-  open,
-  presets,
-  groupsByPreset,
-  activePresetId,
-  defaultPresets,
-  defaultGroupsByPreset,
-  channels,
-  templates,
-  onSave,
-  onSaveTemplate,
-  onClose,
-}: {
-  open: boolean
-  presets: ChannelPreset[]
-  groupsByPreset: Record<string, ChannelPresetGroup[]>
-  activePresetId: string
-  defaultPresets: ChannelPreset[]
-  defaultGroupsByPreset: Record<string, ChannelPresetGroup[]>
-  channels: Channel[]
-  templates: Template[]
-  onSave: (presets: ChannelPreset[], groupsByPreset: Record<string, ChannelPresetGroup[]>) => void
-  onSaveTemplate: (name: string, labels: string[]) => void
-  onClose: () => void
-}) {
-  const importLayoutRef = useRef<HTMLInputElement>(null)
-  const [draftPresets, setDraftPresets] = useState<ChannelPreset[]>([])
-  const [draftGroupsByPreset, setDraftGroupsByPreset] = useState<Record<string, ChannelPresetGroup[]>>({})
-  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null)
-  const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
-  const [query, setQuery] = useState("")
-  const [selectedTemplateId, setSelectedTemplateId] = useState("")
-  const savedSignature = useMemo(() => JSON.stringify({ presets: serializeChannelPresets(presets), groupsByPreset }), [groupsByPreset, presets])
-  const draftSignature = useMemo(
-    () => JSON.stringify({ presets: serializeChannelPresets(draftPresets), groupsByPreset: draftGroupsByPreset }),
-    [draftGroupsByPreset, draftPresets],
-  )
-  const dirty = draftSignature !== savedSignature
-
-  useEffect(() => {
-    if (!open) return
-    const nextPresets = cloneChannelPresets(serializeChannelPresets(presets))
-    const nextGroups = clonePresetGroups(groupsByPreset)
-    const nextPresetId = nextPresets.some((preset) => preset.id === activePresetId) ? activePresetId : nextPresets[0]?.id ?? null
-    setDraftPresets(nextPresets)
-    setDraftGroupsByPreset(nextGroups)
-    setSelectedPresetId(nextPresetId)
-    setActiveGroupId((nextPresetId && (nextGroups[nextPresetId]?.[0]?.id ?? defaultGroupsByPreset[nextPresetId]?.[0]?.id)) || null)
-    setQuery("")
-    setSelectedTemplateId("")
-  }, [activePresetId, defaultGroupsByPreset, groupsByPreset, open, presets])
-
-  useEffect(() => {
-    if (!open) return
-    if (!selectedPresetId || !draftPresets.some((preset) => preset.id === selectedPresetId)) {
-      setSelectedPresetId(draftPresets[0]?.id ?? null)
-      return
-    }
-    const preset = draftPresets.find((item) => item.id === selectedPresetId)
-    const groups = draftGroupsByPreset[selectedPresetId] ?? (preset ? fallbackPresetGroups(preset, defaultGroupsByPreset) : [])
-    if (!activeGroupId || !groups.some((group) => group.id === activeGroupId)) setActiveGroupId(groups[0]?.id ?? null)
-  }, [activeGroupId, defaultGroupsByPreset, draftGroupsByPreset, draftPresets, open, selectedPresetId])
-
-  useEffect(() => {
-    if (!open) return
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Escape") return
-      event.preventDefault()
-      event.stopPropagation()
-      onClose()
-    }
-    window.addEventListener("keydown", onKeyDown, true)
-    return () => window.removeEventListener("keydown", onKeyDown, true)
-  }, [onClose, open])
-
-  if (!open) return null
-
-  const selectedPreset = draftPresets.find((preset) => preset.id === selectedPresetId) ?? draftPresets[0] ?? null
-  const selectedGroups = selectedPreset ? getGroupsForPreset(selectedPreset.id) : []
-  const active = selectedGroups.find((group) => group.id === activeGroupId) ?? selectedGroups[0] ?? null
-  const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) ?? null
-  const q = query.trim().toLowerCase()
-  const filteredChannels = q
-    ? channels.filter((channel) => channel.label.toLowerCase().includes(q) || channel.unit.toLowerCase().includes(q))
-    : channels
-
-  function fallbackGroupsForPreset(preset: ChannelPreset): ChannelPresetGroup[] {
-    return fallbackPresetGroups(preset, defaultGroupsByPreset)
-  }
-
-  function getGroupsForPreset(presetId: string): ChannelPresetGroup[] {
-    const saved = draftGroupsByPreset[presetId]
-    if (saved?.length) return saved
-    const preset = draftPresets.find((item) => item.id === presetId)
-    return preset ? fallbackGroupsForPreset(preset) : []
-  }
-
-  function setGroupsForPreset(presetId: string, groups: ChannelPresetGroup[]) {
-    setDraftGroupsByPreset((current) => ({ ...current, [presetId]: clonePresetGroupList(groups) }))
-  }
-
-  function resolveGroupLabels(preset: ChannelPreset | null, group: ChannelPresetGroup | null): string[] {
-    if (!group) return []
-    const labels: string[] = []
-    const seen = new Set<string>()
-    const add = (label: string) => {
-      if (seen.has(label)) return
-      seen.add(label)
-      labels.push(label)
-    }
-
-    for (const label of group.labels) {
-      const direct = channels.find((channel) => channel.label === label)
-      if (direct) {
-        add(direct.label)
-        continue
-      }
-      const pattern = preset?.patterns.find((item) => item.label === label)
-      if (pattern) {
-        for (const channel of channels) {
-          if (pattern.match.some((matcher) => matcher.test(channel.label))) add(channel.label)
-        }
-      }
-    }
-    return labels
-  }
-
-  function missingSavedLabels(preset: ChannelPreset | null, group: ChannelPresetGroup | null): string[] {
-    if (!group) return []
-    return group.labels.filter((label) => resolveGroupLabels(preset, { ...group, labels: [label] }).length === 0)
-  }
-
-  function allPresetLabels(preset: ChannelPreset | null, groups: ChannelPresetGroup[]): string[] {
-    const labels: string[] = []
-    const seen = new Set<string>()
-    for (const group of groups) {
-      for (const label of resolveGroupLabels(preset, group)) {
-        if (seen.has(label)) continue
-        seen.add(label)
-        labels.push(label)
-      }
-    }
-    return labels
-  }
-
-  const activeChannelLabels = new Set(resolveGroupLabels(selectedPreset, active))
-  const missingLabels = missingSavedLabels(selectedPreset, active)
-
-  function updateGroup(groupId: string, updater: (group: ChannelPresetGroup) => ChannelPresetGroup) {
-    if (!selectedPreset) return
-    setGroupsForPreset(
-      selectedPreset.id,
-      selectedGroups.map((group) => (group.id === groupId ? updater(group) : group)),
-    )
-  }
-
-  function addGraph() {
-    if (!selectedPreset) return
-    const nextGroup = { id: makePresetGroupId(), title: `Graph ${selectedGroups.length + 1}`, labels: [] }
-    setGroupsForPreset(selectedPreset.id, [...selectedGroups, nextGroup])
-    setActiveGroupId(nextGroup.id)
-  }
-
-  function deleteGraph(groupId: string) {
-    if (!selectedPreset) return
-    const next = selectedGroups.filter((group) => group.id !== groupId)
-    const finalGroups = next.length ? next : [{ id: makePresetGroupId(), title: "Graph 1", labels: [] }]
-    setGroupsForPreset(selectedPreset.id, finalGroups)
-    setActiveGroupId(finalGroups[0]?.id ?? null)
-  }
-
-  function toggleChannel(label: string) {
-    if (!active || !selectedPreset) return
-    const expanded = resolveGroupLabels(selectedPreset, active)
-    const nextLabels = activeChannelLabels.has(label) ? expanded.filter((item) => item !== label) : [...expanded, label]
-    updateGroup(active.id, (group) => ({ ...group, labels: nextLabels }))
-  }
-
-  function removeSavedLabel(label: string) {
-    if (!active) return
-    updateGroup(active.id, (group) => ({ ...group, labels: group.labels.filter((item) => item !== label) }))
-  }
-
-  function selectPreset(presetId: string) {
-    const groups = getGroupsForPreset(presetId)
-    setSelectedPresetId(presetId)
-    setActiveGroupId(groups[0]?.id ?? null)
-    setQuery("")
-  }
-
-  function updatePresetName(name: string) {
-    if (!selectedPreset) return
-    setDraftPresets((current) => current.map((preset) => (preset.id === selectedPreset.id ? { ...preset, name } : preset)))
-  }
-
-  function addPreset() {
-    const nextPreset = { id: makeChannelPresetId(), name: `Custom preset ${draftPresets.length + 1}`, patterns: [] }
-    const nextGroup = { id: makePresetGroupId(), title: "Graph 1", labels: [] }
-    setDraftPresets((current) => [...current, nextPreset])
-    setDraftGroupsByPreset((current) => ({ ...current, [nextPreset.id]: [nextGroup] }))
-    setSelectedPresetId(nextPreset.id)
-    setActiveGroupId(nextGroup.id)
-  }
-
-  function addPresetFromTemplate() {
-    if (!selectedTemplate) return
-    const nextPreset = { id: makeChannelPresetId(), name: selectedTemplate.name, patterns: [] }
-    const nextGroup = { id: makePresetGroupId(), title: selectedTemplate.name, labels: [...selectedTemplate.channels] }
-    setDraftPresets((current) => [...current, nextPreset])
-    setDraftGroupsByPreset((current) => ({ ...current, [nextPreset.id]: [nextGroup] }))
-    setSelectedPresetId(nextPreset.id)
-    setActiveGroupId(nextGroup.id)
-  }
-
-  function deletePreset(presetId: string) {
-    if (draftPresets.length <= 1) return
-    const nextPresets = draftPresets.filter((preset) => preset.id !== presetId)
-    const nextGroups = { ...draftGroupsByPreset }
-    delete nextGroups[presetId]
-    setDraftPresets(nextPresets)
-    setDraftGroupsByPreset(nextGroups)
-    if (selectedPresetId === presetId) {
-      setSelectedPresetId(nextPresets[0]?.id ?? null)
-      setActiveGroupId(nextGroups[nextPresets[0]?.id ?? ""]?.[0]?.id ?? null)
-    }
-  }
-
-  function movePreset(presetId: string, direction: -1 | 1) {
-    setDraftPresets((current) => {
-      const index = current.findIndex((preset) => preset.id === presetId)
-      const nextIndex = index + direction
-      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return current
-      const next = [...current]
-      const [item] = next.splice(index, 1)
-      next.splice(nextIndex, 0, item)
-      return next
-    })
-  }
-
-  function resetDraft() {
-    if (!selectedPreset) return
-    const defaultPreset = defaultPresets.find((preset) => preset.id === selectedPreset.id)
-    const nextGroups = defaultPreset ? clonePresetGroupList(defaultGroupsByPreset[selectedPreset.id] ?? fallbackGroupsForPreset(defaultPreset)) : [{ id: makePresetGroupId(), title: "Graph 1", labels: [] }]
-    setDraftPresets((current) => current.map((preset) => (preset.id === selectedPreset.id && defaultPreset ? { ...defaultPreset } : preset)))
-    setGroupsForPreset(selectedPreset.id, nextGroups)
-    setActiveGroupId(nextGroups[0]?.id ?? null)
-    setQuery("")
-  }
-
-  function resetAllDefaults() {
-    const nextPresets = cloneChannelPresets()
-    const nextGroups = clonePresetGroups()
-    setDraftPresets(nextPresets)
-    setDraftGroupsByPreset(nextGroups)
-    setSelectedPresetId(nextPresets[0]?.id ?? null)
-    setActiveGroupId(nextGroups[nextPresets[0]?.id ?? ""]?.[0]?.id ?? null)
-    setQuery("")
-  }
-
-  function addTemplateToGraph() {
-    if (!active || !selectedTemplate) return
-    updateGroup(active.id, (group) => ({ ...group, labels: [...new Set([...group.labels, ...selectedTemplate.channels])] }))
-  }
-
-  function saveCurrentPresetAsTemplate() {
-    if (!selectedPreset) return
-    const labels = allPresetLabels(selectedPreset, selectedGroups)
-    onSaveTemplate(`${selectedPreset.name} channels`, labels)
-  }
-
-  async function importChannelsLayout(file: File) {
-    const imported = parseImportedChannelWorkspace(await file.text())
-    if (!imported) return
-    const nextPresets = imported.presets.length ? imported.presets : cloneChannelPresets()
-    setDraftPresets(nextPresets)
-    setDraftGroupsByPreset(imported.groupsByPreset)
-    setSelectedPresetId(nextPresets[0]?.id ?? null)
-    setActiveGroupId(imported.groupsByPreset[nextPresets[0]?.id ?? ""]?.[0]?.id ?? null)
-    setQuery("")
-  }
-
-  function exportChannelsLayout() {
-    const blob = new Blob([serializeChannelWorkspace(draftPresets, draftGroupsByPreset)], { type: "application/json" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = "octane-channels-layout.json"
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  function saveDraft() {
-    const nextPresets = draftPresets.length ? draftPresets : cloneChannelPresets()
-    const presetIds = new Set(nextPresets.map((preset) => preset.id))
-    const nextGroups: Record<string, ChannelPresetGroup[]> = {}
-    for (const preset of nextPresets) {
-      const groups = draftGroupsByPreset[preset.id] ?? fallbackGroupsForPreset(preset)
-      nextGroups[preset.id] = clonePresetGroupList(groups.length ? groups : [{ id: makePresetGroupId(), title: "Graph 1", labels: [] }])
-    }
-    for (const [presetId, groups] of Object.entries(draftGroupsByPreset)) {
-      if (presetIds.has(presetId)) nextGroups[presetId] = clonePresetGroupList(groups)
-    }
-    onSave(nextPresets, nextGroups)
-    onClose()
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Edit channels presets">
-      <div className="flex max-h-[min(90dvh,54rem)] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">Channels Layout Manager</p>
-            <h3 className="mt-1 text-lg font-semibold text-foreground">Presets, graphs, and dock templates</h3>
-            <p className="mt-1 text-sm text-muted-foreground">Edit every Channels preset, control how many graphs each one has, and pull channel sets from the dock templates.</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Cancel channels edits"
-            className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-
-        <div className="grid min-h-0 flex-1 grid-cols-[16rem_17rem_minmax(0,1fr)]">
-          <aside className="flex min-h-0 flex-col border-r border-border bg-card/35">
-            <input
-              ref={importLayoutRef}
-              type="file"
-              accept=".json,application/json"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                if (file) void importChannelsLayout(file)
-                event.target.value = ""
-              }}
-            />
-            <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Presets</span>
-              <button
-                type="button"
-                onClick={addPreset}
-                className="inline-flex size-7 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                aria-label="Add preset"
-                title="Add preset"
-              >
-                <Plus className="size-3.5" />
-              </button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-2">
-              {draftPresets.map((item, index) => (
-                <div
-                  key={item.id}
-                  className={cn(
-                    "mb-1.5 flex items-center gap-1 rounded-md border px-2 py-1.5 transition-colors",
-                    selectedPreset?.id === item.id ? "border-primary bg-primary/15 text-foreground" : "border-transparent bg-card/50 text-muted-foreground hover:border-border hover:text-foreground",
-                  )}
-                >
-                  <button type="button" onClick={() => selectPreset(item.id)} className="min-w-0 flex-1 text-left">
-                    <span className="block truncate text-sm font-medium">{item.name || `Preset ${index + 1}`}</span>
-                    <span className="font-mono text-[10px] opacity-70">{getGroupsForPreset(item.id).length} graphs</span>
-                  </button>
-                  <div className="flex shrink-0 items-center gap-0.5">
-                    <button
-                      type="button"
-                      onClick={() => movePreset(item.id, -1)}
-                      disabled={index === 0}
-                      className="rounded px-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-30"
-                      aria-label={`Move ${item.name} up`}
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => movePreset(item.id, 1)}
-                      disabled={index === draftPresets.length - 1}
-                      className="rounded px-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-30"
-                      aria-label={`Move ${item.name} down`}
-                    >
-                      ↓
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => deletePreset(item.id)}
-                      disabled={draftPresets.length <= 1}
-                      className="inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-30"
-                      aria-label={`Delete ${item.name}`}
-                    >
-                      <Trash2 className="size-3" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="border-t border-border p-2">
-              <div className="mb-2 grid grid-cols-2 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => importLayoutRef.current?.click()}
-                  className="inline-flex items-center justify-center gap-1 rounded-md border border-border bg-card px-2 py-2 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                  title="Import a Channels layout JSON file"
-                >
-                  <Upload className="size-3" />
-                  Import
-                </button>
-                <button
-                  type="button"
-                  onClick={exportChannelsLayout}
-                  className="inline-flex items-center justify-center gap-1 rounded-md border border-border bg-card px-2 py-2 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                  title="Export this Channels layout as JSON"
-                >
-                  <Download className="size-3" />
-                  Export
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={resetAllDefaults}
-                className="w-full rounded-md border border-border bg-card px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-              >
-                Reset all defaults
-              </button>
-            </div>
-          </aside>
-
-          <aside className="flex min-h-0 flex-col border-r border-border bg-card/20">
-            <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Graphs</span>
-              <button
-                type="button"
-                onClick={addGraph}
-                className="inline-flex size-7 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                aria-label="Add graph"
-                title="Add graph"
-              >
-                <Plus className="size-3.5" />
-              </button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-2">
-              {selectedGroups.map((group, index) => (
-                <button
-                  key={group.id}
-                  type="button"
-                  onClick={() => setActiveGroupId(group.id)}
-                  className={cn(
-                    "mb-1.5 flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-left transition-colors",
-                    active?.id === group.id ? "border-primary bg-primary/15 text-foreground" : "border-transparent bg-card/50 text-muted-foreground hover:border-border hover:text-foreground",
-                  )}
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">{group.title || `Graph ${index + 1}`}</span>
-                    <span className="font-mono text-[10px] opacity-70">{resolveGroupLabels(selectedPreset, group).length} matched ch</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-            <div className="flex shrink-0 flex-col gap-2 border-t border-border p-2">
-              <button
-                type="button"
-                onClick={resetDraft}
-                disabled={!selectedPreset}
-                className="w-full rounded-md border border-border bg-card px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
-              >
-                Reset selected preset
-              </button>
-              <div className="rounded-lg border border-border bg-background/35 p-2">
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Dock templates</p>
-                <select
-                  value={selectedTemplateId}
-                  onChange={(event) => setSelectedTemplateId(event.target.value)}
-                  className="h-8 w-full rounded-md border border-border bg-card px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
-                >
-                  <option value="">Select template</option>
-                  {templates.map((template) => (
-                    <option key={template.id} value={template.id}>
-                      {template.name} ({template.channels.length})
-                    </option>
-                  ))}
-                </select>
-                <div className="mt-2 grid grid-cols-2 gap-1.5">
-                  <button
-                    type="button"
-                    onClick={addTemplateToGraph}
-                    disabled={!selectedTemplate || !active}
-                    className="rounded-md border border-border bg-card px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
-                  >
-                    Add to graph
-                  </button>
-                  <button
-                    type="button"
-                    onClick={addPresetFromTemplate}
-                    disabled={!selectedTemplate}
-                    className="rounded-md border border-border bg-card px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
-                  >
-                    New preset
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={saveCurrentPresetAsTemplate}
-                  disabled={!selectedPreset || allPresetLabels(selectedPreset, selectedGroups).length === 0}
-                  className="mt-1.5 w-full rounded-md border border-border bg-card px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
-                >
-                  Save preset to dock
-                </button>
-              </div>
-            </div>
-          </aside>
-
-          <div className="flex min-h-0 flex-col">
-            {selectedPreset && active ? (
-              <>
-                <div className="grid shrink-0 gap-2 border-b border-border px-4 py-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                  <input
-                    value={selectedPreset.name}
-                    onChange={(event) => updatePresetName(event.target.value)}
-                    className="h-9 min-w-0 rounded-md border border-border bg-card px-3 text-sm font-semibold text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
-                    aria-label="Preset name"
-                  />
-                  <input
-                    value={active.title}
-                    onChange={(event) => updateGroup(active.id, (group) => ({ ...group, title: event.target.value }))}
-                    className="h-9 min-w-0 flex-1 rounded-md border border-border bg-card px-3 text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
-                    aria-label="Graph name"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => deleteGraph(active.id)}
-                    className="inline-flex size-9 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                    aria-label="Delete graph"
-                    title="Delete graph"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                </div>
-
-                <div className="shrink-0 border-b border-border px-4 py-3">
-                  <div className="flex flex-col gap-2">
-                  <div className="relative max-w-md">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <input
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      placeholder="Search channels to add..."
-                      className="h-9 w-full rounded-md border border-border bg-card pl-9 pr-9 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/30"
-                    />
-                    {query && (
-                      <button
-                        type="button"
-                        onClick={() => setQuery("")}
-                        aria-label="Clear search"
-                        className="absolute right-2 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
-                      >
-                        <X className="size-3" />
-                      </button>
-                    )}
-                  </div>
-                  {missingLabels.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Saved, missing in this log</span>
-                      {missingLabels.map((label) => (
-                        <button
-                          key={label}
-                          type="button"
-                          onClick={() => removeSavedLabel(label)}
-                          className="inline-flex items-center gap-1 rounded border border-border bg-card px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                          title={`Remove ${label}`}
-                        >
-                          {label}
-                          <X className="size-2.5" />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  </div>
-                </div>
-
-                <div className="min-h-0 flex-1 overflow-y-auto p-3">
-                  <div className="grid gap-1.5 md:grid-cols-2">
-                    {filteredChannels.map((channel) => {
-                      const checked = activeChannelLabels.has(channel.label)
-                      return (
-                        <button
-                          key={channel.key}
-                          type="button"
-                          onClick={() => toggleChannel(channel.label)}
-                          aria-pressed={checked}
-                          className={cn(
-                            "flex min-w-0 items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors",
-                            checked ? "border-primary bg-primary/15 text-foreground" : "border-border bg-card/45 text-muted-foreground hover:bg-secondary hover:text-foreground",
-                          )}
-                        >
-                          <span className={cn("flex size-4 shrink-0 items-center justify-center rounded border", checked ? "border-primary bg-primary" : "border-border")}>
-                            {checked && <span className="size-1.5 rounded-[1px] bg-primary-foreground" />}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate text-sm" title={channel.label}>{channel.label}</span>
-                          <span className="shrink-0 font-mono text-[10px] opacity-70">{channel.unit}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                  {filteredChannels.length === 0 && (
-                    <div className="px-4 py-10 text-center text-sm text-muted-foreground">No channels match this search.</div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">Add a preset and graph to start editing Channels.</div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex shrink-0 flex-col gap-3 border-t border-border bg-card/35 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            {dirty ? "Unsaved Channels workspace changes are staged in this window." : "Channels presets match the saved layout on this PC."}
-          </p>
-          <div className="flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-card px-3 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={saveDraft}
-              className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-            >
-              Save channels
-            </button>
-          </div>
         </div>
       </div>
     </div>

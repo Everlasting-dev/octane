@@ -3,7 +3,6 @@
 import { useRef, useState } from "react"
 import { ArrowLeft, FileUp, GitCompare, LayoutList, Loader2, LogOut, MapPin, TriangleAlert, Upload } from "lucide-react"
 import { parseLogFile, type ParsedLog } from "@/lib/csv"
-import { SAMPLE_LOG } from "@/lib/sample"
 import { cn } from "@/lib/utils"
 import { friendlyFileError } from "@/lib/friendly-errors"
 import { OctaneLogo } from "./logo"
@@ -66,6 +65,7 @@ export function Landing({
               email={displayEmail}
               firstLoginAt={accountUser?.firstLoginAt}
               expiresAt={accountUser?.licenseExpiresAt}
+                isOwner={accountUser?.isOwner}
               compact
             />
           </div>
@@ -148,13 +148,6 @@ export function Landing({
               >
                 <Upload className="size-4" />
                 Import CSV
-              </button>
-              <button
-                type="button"
-                onClick={() => onOpen(SAMPLE_LOG)}
-                className="rounded-md border border-border bg-card px-4 py-2 text-sm text-foreground transition-colors hover:bg-secondary"
-              >
-                Load sample data
               </button>
             </div>
           )}

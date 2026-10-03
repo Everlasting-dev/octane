@@ -11,7 +11,7 @@ export interface LicenseStatus {
 }
 
 const PREFIX = "octane:license:"
-const SUBSCRIPTION_MS = 30 * 24 * 60 * 60 * 1000
+const SUBSCRIPTION_MS = 15 * 24 * 60 * 60 * 1000
 
 function storageKey(email: string) {
   return `${PREFIX}${email.toLowerCase()}`
@@ -34,7 +34,7 @@ function remainingLabel(expiresAt: number, now: number) {
 export function getLicenseStatus(
   email: string | null | undefined,
   now = Date.now(),
-  license?: { firstLoginAt?: number | null; expiresAt?: number | null },
+  license?: { firstLoginAt?: number | null; expiresAt?: number | null; isOwner?: boolean | null },
 ): LicenseStatus {
   const normalized = email?.trim() || null
   if (!normalized) {
@@ -49,12 +49,14 @@ export function getLicenseStatus(
     }
   }
 
-  if (isAdminEmail(normalized)) {
+  // The server decides who the owner is; the email rule is only a pre-deploy fallback.
+  const owner = typeof license?.isOwner === "boolean" ? license.isOwner : isAdminEmail(normalized)
+  if (owner) {
     return {
       email: normalized,
       plan: "admin",
       status: "lifetime",
-      label: "Admin license",
+      label: "Owner license",
       remainingLabel: "Lifetime",
       issuedAt: null,
       expiresAt: null,

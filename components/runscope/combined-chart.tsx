@@ -1,13 +1,18 @@
 "use client"
 
 import { memo, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react"
+import { createPortal } from "react-dom"
 import {
   ChevronLeft,
   ChevronRight,
+  CircleX,
   Columns2,
+  LayoutTemplate,
+  List,
   Maximize2,
   Minimize2,
   MousePointerClick,
+  MoveHorizontal,
   PanelRightOpen,
   Plus,
   RefreshCw,
@@ -16,29 +21,44 @@ import {
   ScanSearch,
   Search,
   SlidersHorizontal,
+  Spline,
   Trash2,
   TrendingUp,
   X,
 } from "lucide-react"
-import { Area, AreaChart, CartesianGrid, ReferenceDot, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from "recharts"
+import { Area, AreaChart, CartesianGrid, ReferenceArea, ReferenceDot, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from "recharts"
 import { lttb } from "@/lib/downsample"
 import { cn } from "@/lib/utils"
-import { plotColor } from "@/lib/palette"
+import { assignLineColors } from "@/lib/palette"
+import {
+  GAIN_MAX,
+  GAIN_MIN,
+  WIDTH_MAX,
+  WIDTH_MIN,
+  applyStyle,
+  lineRange,
+  normalize,
+  realFromDisplay,
+  type LineStyle,
+  type Range,
+} from "@/lib/line-style"
 import { matchesKey, useBindings } from "@/lib/keybindings"
 import { useMobileLandscapeTight, useMobileViewport } from "@/lib/viewport"
 import { colorForType, type Annotation } from "@/lib/annotations"
-import type { Template } from "@/lib/templates"
+import { resolveTemplateLabels, type Template } from "@/lib/templates"
 import type { ChartSeries } from "./signal-chart"
 import type { DisplaySettings } from "./display-panel"
+import { LineAdjustPanel } from "./line-adjust-panel"
+import { decodeValue, decoderFor, describe, stepValueAt, useFlagDecoders } from "@/lib/flag-decoders"
 
 const RENDER_POINTS = 700
 const PLOT_TOP = 10
 const AXIS_H = 28
 const LEFT = 56
 const RIGHT = 16
-const GAIN_MIN = 0.2
-const GAIN_MAX = 20
-const MOBILE_ANALYSIS_MAX_CHANNELS = 6
+export const MOBILE_ANALYSIS_MAX_CHANNELS = 10
+/** Minimum drag (px) before a window-mode drag counts as a selection. */
+const WINDOW_DRAG_PX = 6
 
 type FullscreenElement = HTMLElement & {
   webkitRequestFullscreen?: () => Promise<void> | void
@@ -49,10 +69,8 @@ type FullscreenDocument = Document & {
   webkitExitFullscreen?: () => Promise<void> | void
 }
 
-export interface Transform {
-  gain: number
-  offset: number
-}
+/** Per-line display settings (gain/offset/width/colour/manual range). */
+export type Transform = LineStyle
 
 interface CombinedChartProps {
   series: ChartSeries[]
@@ -88,6 +106,14 @@ interface CombinedChartProps {
   templates?: Template[]
   onApplyTemplate?: (template: Template) => void
   onToggleChannelLabel?: (label: string) => void
+  /** Replace the plotted channel set (templates, deselect all). */
+  onSetVisibleLabels?: (labels: string[]) => void
+  /** Window mode: drag on the plot to set the shared time window. */
+  windowMode?: boolean
+  onWindowModeChange?: (enabled: boolean) => void
+  onWindowSelect?: (start: number, end: number) => void
+  /** Max lines on the phone plot. */
+  maxLines?: number
 }
 
 function fmt(v: number, decimals: number) {
@@ -130,9 +156,8 @@ function sampleAt(data: ChartSeries["signal"]["data"], t: number): { t: number; 
   const ratio = (t - left.t) / (right.t - left.t)
   return { t, value: left.value + (right.value - left.value) * ratio }
 }
-function applyTf(v: number | null, t: Transform): number | null {
-  if (v == null) return null
-  return (v - 0.5) * t.gain + 0.5 + t.offset
+function uniq(labels: string[]): string[] {
+  return [...new Set(labels)]
 }
 
 interface Peak {
@@ -307,6 +332,11 @@ function CombinedChartImpl({
   templates = [],
   onApplyTemplate,
   onToggleChannelLabel,
+  onSetVisibleLabels,
+  windowMode = false,
+  onWindowModeChange,
+  onWindowSelect,
+  maxLines = MOBILE_ANALYSIS_MAX_CHANNELS,
 }: CombinedChartProps) {
   const allSeries = availableSeries ?? series
   const presetMode = presetGroups !== undefined
@@ -330,6 +360,8 @@ function CombinedChartImpl({
   // Plot quick-search ("/"): filter the dock; Enter focuses the match, then it hides.
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState("")
+  const [linesOpen, setLinesOpen] = useState(false)
+  const [dockTab, setDockTab] = useState<"list" | "templates">("list")
   const plotRef = useRef<HTMLElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const bindings = useBindings()
@@ -370,16 +402,50 @@ function CombinedChartImpl({
 
   const labels = series.map((s) => s.signal.label)
   const visibleLabels = useMemo(() => new Set(series.map((s) => s.signal.label)), [series])
-  const colorOf = useMemo(() => {
-    const m: Record<string, string> = {}
-    allSeries.forEach((s, i) => (m[s.signal.label] = plotColor(i)))
-    return m
-  }, [allSeries])
   const seriesByLabel = useMemo(() => {
     const m: Record<string, ChartSeries> = {}
     allSeries.forEach((s) => (m[s.signal.label] = s))
+    series.forEach((s) => {
+      if (!m[s.signal.label]) m[s.signal.label] = s
+    })
+    presetGroups?.forEach((g) =>
+      g.series.forEach((s) => {
+        if (!m[s.signal.label]) m[s.signal.label] = s
+      }),
+    )
     return m
-  }, [allSeries])
+  }, [allSeries, series, presetGroups])
+  // Labels actually drawn right now (every pane), in display order.
+  const displayLabels = useMemo(() => {
+    if (presetGroups) return uniq(presetGroups.flatMap((g) => g.series.map((s) => s.signal.label)))
+    if (analysisTab === "groups" && !mobilePlot) return uniq(groups.flatMap((g) => g.labels).filter((l) => seriesByLabel[l]))
+    return series.map((s) => s.signal.label)
+  }, [presetGroups, analysisTab, mobilePlot, groups, seriesByLabel, series])
+  const displaySeries = useMemo(
+    () => displayLabels.map((l) => seriesByLabel[l]).filter((s): s is ChartSeries => Boolean(s)),
+    [displayLabels, seriesByLabel],
+  )
+  // Every drawn line gets a unique colour; lines keep their colour while others toggle.
+  const colorPrevRef = useRef<Record<string, string>>({})
+  const colorOf = useMemo(() => {
+    const overrides: Record<string, string | undefined> = {}
+    for (const [label, style] of Object.entries(transforms)) if (style.color) overrides[label] = style.color
+    const assigned = assignLineColors(displayLabels, overrides, presetMode ? {} : colorPrevRef.current)
+    const m: Record<string, string> = {}
+    for (const s of allSeries) m[s.signal.label] = colorPrevRef.current[s.signal.label] ?? "var(--muted-foreground)"
+    return Object.assign(m, assigned)
+  }, [allSeries, displayLabels, transforms, presetMode])
+  useEffect(() => {
+    const next = { ...colorPrevRef.current }
+    for (const label of displayLabels) if (colorOf[label]) next[label] = colorOf[label]
+    colorPrevRef.current = next
+  }, [colorOf, displayLabels])
+  // Vertical range per line: manual scale if set, else the smart range.
+  const rangeOf = useMemo(() => {
+    const m: Record<string, Range> = {}
+    for (const s of Object.values(seriesByLabel)) m[s.signal.label] = lineRange(s.signal, transforms[s.signal.label])
+    return m
+  }, [seriesByLabel, transforms])
   useEffect(() => {
     if (!allSeries.length || groupsLoaded) return
     const stored = loadStoredGroups()
@@ -404,6 +470,44 @@ function CombinedChartImpl({
 
   // Lines targeted by scale/move gestures: the multi-selection, else the focused line.
   const targetLabels = (): string[] => (selected.size ? [...selected] : focusKey ? [focusKey] : [])
+  // Keyboard edits always act on something: fall back to (and focus) the first line.
+  function ensureTargets(): string[] {
+    const t = targetLabels()
+    if (t.length) return t
+    const first = displayLabels[0]
+    if (!first) return []
+    setFocusKey(first)
+    return [first]
+  }
+  function editTargets(targets: string[], fn: (s: Transform) => Transform) {
+    if (!targets.length) return
+    setTransforms((prev) => {
+      const next = { ...prev }
+      for (const l of targets) next[l] = fn(next[l] ?? { gain: 1, offset: 0 })
+      return next
+    })
+  }
+  function keyGain(factor: number) {
+    editTargets(ensureTargets(), (t) => ({ ...t, gain: +clamp(t.gain * factor, GAIN_MIN, GAIN_MAX).toFixed(3) }))
+  }
+  function keyOffset(delta: number) {
+    editTargets(ensureTargets(), (t) => ({ ...t, offset: +(t.offset + delta).toFixed(3) }))
+  }
+  function keyWidth(delta: number) {
+    editTargets(ensureTargets(), (t) => ({ ...t, width: +clamp((t.width ?? display.lineWidth) + delta, WIDTH_MIN, WIDTH_MAX).toFixed(1) }))
+  }
+  function keyReset() {
+    const targets = ensureTargets()
+    setTransforms((prev) => {
+      const next = { ...prev }
+      for (const l of targets) {
+        const color = next[l]?.color
+        delete next[l]
+        if (color) next[l] = { gain: 1, offset: 0, color }
+      }
+      return next
+    })
+  }
 
   function applyGain(factor: number) {
     const targets = targetLabels()
@@ -432,7 +536,9 @@ function CombinedChartImpl({
   function resetTransform(label: string) {
     setTransforms((prev) => {
       const next = { ...prev }
+      const color = next[label]?.color
       delete next[label]
+      if (color) next[label] = { gain: 1, offset: 0, color }
       return next
     })
   }
@@ -534,32 +640,54 @@ function CombinedChartImpl({
       }
     }
     if (bt == null) return null
-    const range = s.signal.max - s.signal.min || 1
     return {
       label: highlightKey,
       t: bt,
       value: bv,
-      norm: (bv - s.signal.min) / range,
+      norm: normalize(bv, rangeOf[highlightKey] ?? lineRange(s.signal)),
       unit: s.signal.unit,
       decimals: s.signal.decimals,
       color: colorOf[highlightKey],
     }
-  }, [markPeaks, highlightKey, seriesByLabel, domain, colorOf])
+  }, [markPeaks, highlightKey, seriesByLabel, domain, colorOf, rangeOf])
 
   const shownAnnotations = useMemo(() => annotations.filter((a) => !a.channel), [annotations])
 
   function cycleFocus(dir: number) {
-    if (!labels.length) return
+    const order = displayLabels.length ? displayLabels : labels
+    if (!order.length) return
     setFocusKey((prev) => {
-      const idx = prev ? labels.indexOf(prev) : -1
-      return labels[(idx + dir + labels.length) % labels.length]
+      const idx = prev ? order.indexOf(prev) : -1
+      return order[(idx + dir + order.length) % order.length]
     })
   }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const el = e.target as HTMLElement | null
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return
+      // Line edits without touching the mouse (all remappable in Settings).
+      const lineActions: [keyof typeof bindings, () => void][] = [
+        ["lineScaleUp", () => keyGain(1.15)],
+        ["lineScaleDown", () => keyGain(1 / 1.15)],
+        ["lineShiftUp", () => keyOffset(0.05)],
+        ["lineShiftDown", () => keyOffset(-0.05)],
+        ["lineWidthUp", () => keyWidth(0.5)],
+        ["lineWidthDown", () => keyWidth(-0.5)],
+        ["lineReset", () => keyReset()],
+      ]
+      for (const [id, run] of lineActions) {
+        if (matchesKey(e, bindings[id])) {
+          e.preventDefault()
+          run()
+          return
+        }
+      }
+      if (matchesKey(e, bindings.lineAdjust)) {
+        e.preventDefault()
+        setLinesOpen((v) => !v)
+        return
+      }
       if (matchesKey(e, bindings.focusNext)) {
         e.preventDefault()
         cycleFocus(1)
@@ -586,7 +714,8 @@ function CombinedChartImpl({
         setTimeout(() => searchRef.current?.focus(), 0)
       } else if (e.key === "Escape") {
         if (modalOpen) return // a dialog is open — let the dashboard close it first
-        if (fullscreen) toggleFullscreen()
+        if (linesOpen) setLinesOpen(false)
+        else if (fullscreen) toggleFullscreen()
         else {
           setFocusKey(null)
           setSelected(new Set())
@@ -595,7 +724,7 @@ function CombinedChartImpl({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [series, bindings, fullscreen, modalOpen, focusKey, selected, plotAssign, mobilePlot, presetMode]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [series, bindings, fullscreen, modalOpen, focusKey, selected, plotAssign, mobilePlot, presetMode, linesOpen, displayLabels, display.lineWidth]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (markPeaks && focusKey) setHighlightKey(focusKey)
@@ -657,7 +786,7 @@ function CombinedChartImpl({
   const dockSeries = searchOpen && q ? dockMatches : series
   const mobileChannelSeries = q ? allSeries.filter((s) => s.signal.label.toLowerCase().includes(q)) : allSeries
   const channelPanelSeries = mobilePlot ? mobileChannelSeries : dockSeries
-  const mobileChannelLimitReached = mobilePlot && visibleLabels.size >= MOBILE_ANALYSIS_MAX_CHANNELS
+  const mobileChannelLimitReached = mobilePlot && visibleLabels.size >= maxLines
   function closeSearch() {
     setSearchOpen(false)
     setQuery("")
@@ -666,7 +795,7 @@ function CombinedChartImpl({
     const first = (mobilePlot ? mobileChannelSeries : dockMatches)[0]?.signal.label
     if (first) {
       if (mobilePlot && !visibleLabels.has(first)) {
-        if (visibleLabels.size >= MOBILE_ANALYSIS_MAX_CHANNELS) return
+        if (visibleLabels.size >= maxLines) return
         onToggleChannelLabel?.(first)
       }
       setFocusKey(first)
@@ -675,7 +804,7 @@ function CombinedChartImpl({
   }
   function togglePanelChannel(label: string, isVisible: boolean) {
     if (mobilePlot) {
-      if (!isVisible && visibleLabels.size >= MOBILE_ANALYSIS_MAX_CHANNELS) return
+      if (!isVisible && visibleLabels.size >= maxLines) return
       onToggleChannelLabel?.(label)
       return
     }
@@ -683,7 +812,7 @@ function CombinedChartImpl({
   }
   function activatePanelChannel(label: string, focused: boolean, isVisible: boolean) {
     if (mobilePlot) {
-      if (!isVisible && visibleLabels.size >= MOBILE_ANALYSIS_MAX_CHANNELS) return
+      if (!isVisible && visibleLabels.size >= maxLines) return
       onToggleChannelLabel?.(label)
       return
     }
@@ -728,7 +857,7 @@ function CombinedChartImpl({
           </span>
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5 sm:gap-2">
-          <span className="mr-1 hidden font-mono text-[11px] text-muted-foreground lg:inline">
+          <span className="mr-1 hidden font-mono text-[11px] text-muted-foreground 2xl:inline">
             {selected.size ? `${selected.size} selected` : focusKey ? `Focused: ${focusKey}` : "focus a line to scale it"}
           </span>
           {!presetMode && analysisTab === "standard" && !mobilePlot && templates.length > 0 && onApplyTemplate && (
@@ -758,6 +887,28 @@ function CombinedChartImpl({
             >
               <PanelRightOpen className="size-3.5" />
               <span className="hidden min-[420px]:inline">Channels</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setLinesOpen((value) => !value)}
+            aria-pressed={linesOpen}
+            title="Line adjust: colour, scale, weight (T)"
+            className={toolbarButtonClass(linesOpen)}
+          >
+            <Spline className="size-3.5" />
+            <span className="hidden min-[420px]:inline">Lines</span>
+          </button>
+          {onWindowModeChange && (
+            <button
+              type="button"
+              onClick={() => onWindowModeChange(!windowMode)}
+              aria-pressed={windowMode}
+              title={windowMode ? "Window mode on: drag on the plot to set the time window (W)" : "Window mode: drag on the plot to set the time window (W)"}
+              className={toolbarButtonClass(windowMode)}
+            >
+              <MoveHorizontal className="size-3.5" />
+              <span className="hidden min-[420px]:inline">Window</span>
             </button>
           )}
           {mobilePlot && (
@@ -915,6 +1066,10 @@ function CombinedChartImpl({
                 onLineHover={setHoverKey}
                 onLinePick={pickLine}
                 onAddAnnotation={onAddAnnotation}
+                rangeOf={rangeOf}
+                windowMode={windowMode}
+                onWindowSelect={onWindowSelect}
+                onWindowReset={onFitWindow}
               />
             ))
           ) : (
@@ -938,10 +1093,10 @@ function CombinedChartImpl({
             />
           ) : (
           <aside className="octane-analysis-dock absolute inset-x-0 bottom-0 z-20 flex max-h-[58%] flex-col border-t border-border bg-popover/95 shadow-2xl backdrop-blur sm:static sm:max-h-none sm:w-64 sm:shrink-0 sm:border-l sm:border-t-0 sm:bg-transparent sm:shadow-none sm:backdrop-blur-0">
-            <div className="flex items-center justify-between border-b border-border px-3 py-2">
-              <span className="font-mono text-[11px] text-muted-foreground">
+            <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+              <span className={cn("font-mono text-muted-foreground", mobilePlot ? "text-xs" : "text-[11px]")}>
                 {mobilePlot
-                  ? `${visibleLabels.size}/${MOBILE_ANALYSIS_MAX_CHANNELS} selected`
+                  ? `${visibleLabels.size}/${maxLines} on plot`
                   : selected.size
                     ? `${selected.size} selected`
                     : cursorT != null
@@ -958,119 +1113,225 @@ function CombinedChartImpl({
                     Clear
                   </button>
                 )}
+                {onSetVisibleLabels && visibleLabels.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSetVisibleLabels([])
+                      setFocusKey(null)
+                      setSelected(new Set())
+                    }}
+                    title="Remove every line from the plot"
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-md border border-border bg-card font-medium text-foreground transition-colors hover:bg-secondary",
+                      mobilePlot ? "h-10 px-3 text-sm" : "h-6 px-1.5 text-[10px]",
+                    )}
+                  >
+                    <CircleX className={mobilePlot ? "size-4" : "size-3"} />
+                    Deselect all
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={closeSidePanel}
                   aria-label="Collapse panel"
-                  className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  className={cn(
+                    "inline-flex items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground",
+                    mobilePlot ? "size-10 border border-border bg-card" : "size-6",
+                  )}
                 >
-                  <ChevronRight className="size-4" />
+                  {mobilePlot ? <X className="size-5" /> : <ChevronRight className="size-4" />}
                 </button>
               </div>
             </div>
-            {(mobilePlot || searchOpen) && (
-              <div className="border-b border-border px-2 py-1.5">
-                <input
-                  ref={searchRef}
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault()
-                      focusMatch()
-                    } else if (e.key === "Escape") {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      closeSearch()
-                    }
-                  }}
-                  placeholder={mobilePlot ? "Search channels..." : "Search channels... Enter to highlight"}
-                  className="h-7 w-full rounded-md border border-border bg-card px-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
-                />
-                {mobileChannelLimitReached && (
-                  <p className="mt-1 px-0.5 text-[10px] text-muted-foreground">6 selected. Deselect a channel before adding another.</p>
-                )}
-              </div>
-            )}
-            <ul className="min-h-0 flex-1 overflow-y-auto py-1">
-              {channelPanelSeries.map((s) => {
-                const label = s.signal.label
-                const focused = focusKey === label
-                const isSel = selected.has(label)
-                const isVisible = visibleLabels.has(label)
-                const blocked = mobilePlot && !isVisible && visibleLabels.size >= MOBILE_ANALYSIS_MAX_CHANNELS
-                const t = transforms[label]
-                const v = cursorT != null ? sampleAt(s.signal.data, cursorT)?.value ?? null : null
-                return (
-                  <li
-                    key={s.id}
+            {mobilePlot && templates.length > 0 && onSetVisibleLabels && (
+              <div className="grid shrink-0 grid-cols-2 gap-1 border-b border-border p-2" role="tablist" aria-label="Choose lines">
+                {(["list", "templates"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    role="tab"
+                    aria-selected={dockTab === tab}
+                    onClick={() => setDockTab(tab)}
                     className={cn(
-                      "flex items-center gap-1.5 px-2 py-1.5 transition-colors",
-                      focused || (mobilePlot && isVisible) ? "bg-secondary" : blocked ? "opacity-45" : "hover:bg-secondary/50",
+                      "inline-flex h-10 items-center justify-center gap-2 rounded-md text-sm font-semibold transition-colors",
+                      dockTab === tab ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-secondary",
                     )}
                   >
-                    <button
-                      type="button"
-                      onClick={() => togglePanelChannel(label, isVisible)}
-                      aria-pressed={mobilePlot ? isVisible : isSel}
-                      disabled={blocked}
-                      title={mobilePlot ? (isVisible ? "Hide channel" : "Show channel") : "Select for group scaling"}
-                      className={cn(
-                        "flex size-4 shrink-0 items-center justify-center rounded border transition-colors disabled:cursor-not-allowed",
-                        (mobilePlot ? isVisible : isSel) ? "border-primary bg-primary text-primary-foreground" : "border-border",
-                      )}
-                    >
-                      {(mobilePlot ? isVisible : isSel) && <span className="size-1.5 rounded-[1px] bg-primary-foreground" />}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => activatePanelChannel(label, focused, isVisible)}
-                      disabled={blocked}
-                      title={label}
-                      className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-not-allowed"
-                    >
-                      <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: colorOf[label] }} />
-                      <span className={cn("min-w-0 flex-1 truncate text-xs", focused || (mobilePlot && isVisible) ? "text-foreground" : "text-muted-foreground")}>
-                        {label}
-                      </span>
-                    </button>
-                    {!mobilePlot && manualSplit && (
-                      <div className="flex shrink-0 overflow-hidden rounded border border-border text-[9px] font-mono">
-                        {([0, 1] as const).map((pi) => (
-                          <button
-                            key={pi}
-                            type="button"
-                            onClick={() => setPlotAssign((prev) => ({ ...prev, [label]: pi }))}
-                            className={cn("px-1", paneOf(label) === pi ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary")}
-                          >
-                            {pi + 1}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {!mobilePlot && t && (
+                    {tab === "list" ? <List className="size-4" /> : <LayoutTemplate className="size-4" />}
+                    {tab === "list" ? "Channel list" : "Templates"}
+                  </button>
+                ))}
+              </div>
+            )}
+            {mobilePlot && dockTab === "templates" && templates.length > 0 && onSetVisibleLabels ? (
+              <ul className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
+                {templates.map((template) => {
+                  const present = resolveTemplateLabels(template, allSeries.map((s) => s.signal.label))
+                  return (
+                    <li key={template.id}>
                       <button
                         type="button"
-                        onClick={() => resetTransform(label)}
-                        title={`Scale ×${t.gain.toFixed(1)} — reset`}
-                        className="inline-flex shrink-0 items-center rounded px-1 text-[10px] font-mono text-primary hover:bg-secondary"
+                        disabled={present.length === 0}
+                        onClick={() => {
+                          onSetVisibleLabels(present)
+                          setFocusKey(null)
+                          setDockTab("list")
+                          setDockOpen(false)
+                        }}
+                        className="mb-1.5 flex min-h-12 w-full items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2 text-left transition-colors hover:bg-secondary active:bg-secondary disabled:opacity-40"
                       >
-                        ×{t.gain.toFixed(1)}
-                        <RotateCcw className="ml-0.5 size-3" />
+                        <span className="min-w-0 truncate text-sm font-semibold text-foreground">{template.name}</span>
+                        <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                          {present.length ? `${Math.min(present.length, maxLines)} lines` : "none in log"}
+                        </span>
                       </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : (
+              <>
+                {(mobilePlot || searchOpen) && (
+                  <div className="border-b border-border px-2 py-1.5">
+                    <input
+                      ref={searchRef}
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault()
+                          focusMatch()
+                        } else if (e.key === "Escape") {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          closeSearch()
+                        }
+                      }}
+                      placeholder={mobilePlot ? "Search channels..." : "Search channels... Enter to highlight"}
+                      className={cn(
+                        "w-full rounded-md border border-border bg-card px-2 text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none",
+                        mobilePlot ? "h-10 text-base" : "h-7 text-xs",
+                      )}
+                    />
+                    {mobileChannelLimitReached && (
+                      <p className="mt-1 px-0.5 text-[11px] text-muted-foreground">
+                        {maxLines} lines on the plot. Deselect one before adding another.
+                      </p>
                     )}
-                    {!mobilePlot && (
-                      <span className="w-12 shrink-0 text-right font-mono text-[11px] tabular-nums" style={{ color: focused ? colorOf[label] : undefined }}>
-                        {v == null ? "—" : fmt(v, s.signal.decimals)}
-                      </span>
-                    )}
-                  </li>
-                )
-              })}
-            </ul>
+                  </div>
+                )}
+                <ul className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
+                  {channelPanelSeries.map((s) => {
+                    const label = s.signal.label
+                    const focused = focusKey === label
+                    const isSel = selected.has(label)
+                    const isVisible = visibleLabels.has(label)
+                    const blocked = mobilePlot && !isVisible && visibleLabels.size >= maxLines
+                    const t = transforms[label]
+                    const v = cursorT != null ? sampleAt(s.signal.data, cursorT)?.value ?? null : null
+                    if (mobilePlot) {
+                      return (
+                        <li key={s.id}>
+                          <button
+                            type="button"
+                            onClick={() => togglePanelChannel(label, isVisible)}
+                            disabled={blocked}
+                            aria-pressed={isVisible}
+                            className={cn(
+                              "flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left transition-colors disabled:cursor-not-allowed",
+                              isVisible ? "bg-secondary" : blocked ? "opacity-45" : "active:bg-secondary/60",
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "flex size-5 shrink-0 items-center justify-center rounded border-2",
+                                isVisible ? "border-primary bg-primary" : "border-border",
+                              )}
+                            >
+                              {isVisible && <span className="size-2 rounded-[2px] bg-primary-foreground" />}
+                            </span>
+                            <span
+                              className="size-3 shrink-0 rounded-full"
+                              style={{ backgroundColor: isVisible ? colorOf[label] : "var(--muted-foreground)" }}
+                            />
+                            <span className={cn("min-w-0 flex-1 truncate text-sm", isVisible ? "text-foreground" : "text-muted-foreground")}>
+                              {label}
+                            </span>
+                            {unitText(s.signal.unit) && (
+                              <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{s.signal.unit}</span>
+                            )}
+                          </button>
+                        </li>
+                      )
+                    }
+                    return (
+                      <li
+                        key={s.id}
+                        className={cn(
+                          "flex items-center gap-1.5 px-2 py-1.5 transition-colors",
+                          focused ? "bg-secondary" : "hover:bg-secondary/50",
+                        )}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => togglePanelChannel(label, isVisible)}
+                          aria-pressed={isSel}
+                          title="Select for group scaling"
+                          className={cn(
+                            "flex size-4 shrink-0 items-center justify-center rounded border transition-colors",
+                            isSel ? "border-primary bg-primary text-primary-foreground" : "border-border",
+                          )}
+                        >
+                          {isSel && <span className="size-1.5 rounded-[1px] bg-primary-foreground" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => activatePanelChannel(label, focused, isVisible)}
+                          title={label}
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                        >
+                          <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: colorOf[label] }} />
+                          <span className={cn("min-w-0 flex-1 truncate text-xs", focused ? "text-foreground" : "text-muted-foreground")}>
+                            {label}
+                          </span>
+                        </button>
+                        {manualSplit && (
+                          <div className="flex shrink-0 overflow-hidden rounded border border-border text-[9px] font-mono">
+                            {([0, 1] as const).map((pi) => (
+                              <button
+                                key={pi}
+                                type="button"
+                                onClick={() => setPlotAssign((prev) => ({ ...prev, [label]: pi }))}
+                                className={cn("px-1", paneOf(label) === pi ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary")}
+                              >
+                                {pi + 1}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {t && (t.gain !== 1 || t.offset !== 0 || t.rangeMin != null || t.rangeMax != null) && (
+                          <button
+                            type="button"
+                            onClick={() => resetTransform(label)}
+                            title={`Scale ×${t.gain.toFixed(1)} — reset`}
+                            className="inline-flex shrink-0 items-center rounded px-1 text-[10px] font-mono text-primary hover:bg-secondary"
+                          >
+                            ×{t.gain.toFixed(1)}
+                            <RotateCcw className="ml-0.5 size-3" />
+                          </button>
+                        )}
+                        <span className="w-12 shrink-0 text-right font-mono text-[11px] tabular-nums" style={{ color: focused ? colorOf[label] : undefined }}>
+                          {v == null ? "—" : fmt(v, s.signal.decimals)}
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </>
+            )}
             <div className="hidden border-t border-border px-3 py-2 text-[10px] leading-relaxed text-muted-foreground sm:block">
-              Tick channels to scale several at once · Shift+scroll scales · Shift+drag moves · the left axis shows the focused line's real
-              values.
+              Tick channels to scale several at once · Shift+scroll scales · Shift+drag moves · Lines (T) sets colour, scale range and weight.
             </div>
           </aside>
           )
@@ -1084,7 +1345,60 @@ function CombinedChartImpl({
             <ChevronLeft className="size-4" />
           </button>
         ))}
+        {workbench && !linesOpen && (
+          <button
+            type="button"
+            onClick={() => setLinesOpen(true)}
+            title="Line adjust: colour, scale, weight (T)"
+            className="absolute right-3 top-3 z-30 inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-popover/90 px-2.5 text-[11px] font-medium text-foreground shadow-lg backdrop-blur hover:bg-secondary"
+          >
+            <Spline className="size-3.5" />
+            Lines
+          </button>
+        )}
+        {linesOpen && !mobilePlot && (
+          <LineAdjustPanel
+            series={displaySeries}
+            colorOf={colorOf}
+            styles={transforms}
+            setStyles={setTransforms}
+            focusKey={focusKey}
+            onFocus={(label) => {
+              setFocusKey(label)
+              setSelected(new Set())
+            }}
+            cursorValue={(s) => (cursorT != null ? sampleAt(s.signal.data, cursorT)?.value ?? null : null)}
+            defaultWidth={display.lineWidth}
+            mobile={false}
+            onClose={() => setLinesOpen(false)}
+          />
+        )}
       </div>
+
+      {linesOpen &&
+        mobilePlot &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 z-[95]">
+            <button type="button" aria-label="Close line adjust" onClick={() => setLinesOpen(false)} className="absolute inset-0 bg-black/50" />
+            <LineAdjustPanel
+              series={displaySeries}
+              colorOf={colorOf}
+              styles={transforms}
+              setStyles={setTransforms}
+              focusKey={focusKey}
+              onFocus={(label) => {
+                setFocusKey(label)
+                setSelected(new Set())
+              }}
+              cursorValue={(s) => (cursorT != null ? sampleAt(s.signal.data, cursorT)?.value ?? null : null)}
+              defaultWidth={display.lineWidth}
+              mobile
+              onClose={() => setLinesOpen(false)}
+            />
+          </div>,
+          document.body,
+        )}
 
       {timelineSlot && (
         <div className={cn("octane-analysis-timeline border-t border-border bg-background/90 px-2 py-2 backdrop-blur", !fullscreen && "lg:hidden")}>
@@ -1310,6 +1624,10 @@ function AnalysisPane({
   onLineHover,
   onLinePick,
   onAddAnnotation,
+  rangeOf,
+  windowMode,
+  onWindowSelect,
+  onWindowReset,
 }: {
   paneTitle: string
   paneSeries: ChartSeries[]
@@ -1340,8 +1658,14 @@ function AnalysisPane({
   onLineHover: (label: string | null) => void
   onLinePick: (label: string) => void
   onAddAnnotation: (t: number, channel: string) => void
+  rangeOf: Record<string, Range>
+  windowMode: boolean
+  onWindowSelect?: (start: number, end: number) => void
+  onWindowReset?: () => void
 }) {
   const wrapRef = useRef<HTMLDivElement>(null)
+  const winRef = useRef<{ startX: number; t0: number; moved: boolean } | null>(null)
+  const [winSel, setWinSel] = useState<[number, number] | null>(null)
   const dragRef = useRef<{ moved: boolean } | null>(null)
   const clickRef = useRef<{ x: number; y: number; moved: boolean } | null>(null)
   const offsetDragRef = useRef<{ startY: number } | null>(null)
@@ -1351,22 +1675,24 @@ function AnalysisPane({
 
   const tf = (label: string): Transform => transforms[label] ?? { gain: 1, offset: 0 }
 
+  // Downsample once per series; re-normalise cheaply when a scale range changes.
+  const reduced = useMemo(() => paneSeries.map((s) => lttb(s.signal.data, RENDER_POINTS)), [paneSeries])
   const { rows, keys } = useMemo(() => {
     const map = new Map<number, Record<string, number | null>>()
     paneSeries.forEach((s, si) => {
       const key = `k${si}`
-      const range = s.signal.max - s.signal.min || 1
-      for (const d of lttb(s.signal.data, RENDER_POINTS)) {
+      const range = rangeOf[s.signal.label] ?? lineRange(s.signal)
+      for (const d of reduced[si] ?? []) {
         let row = map.get(d.t)
         if (!row) {
           row = { t: d.t }
           map.set(d.t, row)
         }
-        row[key] = d.value == null ? null : (d.value - s.signal.min) / range
+        row[key] = d.value == null ? null : normalize(d.value, range)
       }
     })
     return { rows: [...map.values()].sort((a, b) => (a.t as number) - (b.t as number)), keys: paneSeries.map((_, i) => `k${i}`) }
-  }, [paneSeries])
+  }, [paneSeries, reduced, rangeOf])
 
   // Re-render on pane resize so the cursor/peak overlays (positioned from the
   // measured height) stay correct as the window or split layout changes.
@@ -1393,9 +1719,13 @@ function AnalysisPane({
   }, [])
 
   function pointerToT(clientX: number) {
-    const r = wrapRef.current!.getBoundingClientRect()
-    const left = (readoutMode === "none" ? LEFT : 12) + 4
-    const w = Math.max(1, r.width - left - RIGHT)
+    const el = wrapRef.current!
+    const r = el.getBoundingClientRect()
+    const cs = window.getComputedStyle(el)
+    const padL = parseFloat(cs.paddingLeft) || 0
+    const padR = parseFloat(cs.paddingRight) || 0
+    const left = padL + (readoutMode === "none" ? LEFT : 12) + 4
+    const w = Math.max(1, r.width - left - RIGHT - padR)
     return +clamp(domain[0] + ((clientX - r.left - left) / w) * (domain[1] - domain[0]), domain[0], domain[1]).toFixed(3)
   }
   function usableH() {
@@ -1412,7 +1742,7 @@ function AnalysisPane({
     let bd = Infinity
     keys.forEach((k, i) => {
       const label = paneSeries[i].signal.label
-      const disp = applyTf(row?.[k] ?? null, tf(label))
+      const disp = applyStyle(row?.[k] ?? null, tf(label))
       if (disp == null) return
       const d = Math.abs(disp - ratio)
       if (d < bd) {
@@ -1431,6 +1761,13 @@ function AnalysisPane({
       wrapRef.current.setPointerCapture(e.pointerId)
       return
     }
+    if (windowMode && !annotateMode && !markPeaks) {
+      e.preventDefault()
+      winRef.current = { startX: e.clientX, t0: pointerToT(e.clientX), moved: false }
+      setWinSel(null)
+      wrapRef.current.setPointerCapture(e.pointerId)
+      return
+    }
     if (annotateMode || markPeaks) {
       clickRef.current = { x: e.clientX, y: e.clientY, moved: false }
       wrapRef.current.setPointerCapture(e.pointerId)
@@ -1442,6 +1779,12 @@ function AnalysisPane({
     onCursorChange(pointerToT(e.clientX))
   }
   function onPointerMove(e: React.PointerEvent) {
+    if (winRef.current) {
+      e.preventDefault()
+      if (Math.abs(e.clientX - winRef.current.startX) >= WINDOW_DRAG_PX) winRef.current.moved = true
+      if (winRef.current.moved) setWinSel([winRef.current.t0, pointerToT(e.clientX)])
+      return
+    }
     if (offsetDragRef.current) {
       e.preventDefault()
       const dy = e.clientY - offsetDragRef.current.startY
@@ -1460,6 +1803,15 @@ function AnalysisPane({
     }
   }
   function onPointerUp(e: React.PointerEvent) {
+    if (winRef.current) {
+      const w = winRef.current
+      winRef.current = null
+      setWinSel(null)
+      const t1 = pointerToT(e.clientX)
+      if (w.moved && t1 !== w.t0) onWindowSelect?.(Math.min(w.t0, t1), Math.max(w.t0, t1))
+      else onCursorChange(t1)
+      return
+    }
     if (offsetDragRef.current) {
       offsetDragRef.current = null
       return
@@ -1476,6 +1828,8 @@ function AnalysisPane({
     dragRef.current = null
   }
   function onPointerCancel() {
+    winRef.current = null
+    setWinSel(null)
     offsetDragRef.current = null
     clickRef.current = null
     dragRef.current = null
@@ -1491,14 +1845,12 @@ function AnalysisPane({
   const axisColor = axisLabel ? colorOf[axisLabel] : "var(--muted-foreground)"
   function realAt(y: number): string {
     if (!axisSig) return ""
-    const t = tf(axisLabel!)
-    const range = axisSig.signal.max - axisSig.signal.min || 1
-    const norm = (y - 0.5 - t.offset) / t.gain + 0.5
-    const real = axisSig.signal.min + range * norm
+    const real = realFromDisplay(y, rangeOf[axisLabel!] ?? lineRange(axisSig.signal), tf(axisLabel!))
     return fmt(real, Math.abs(real) >= 100 ? 0 : axisSig.signal.decimals <= 1 ? 1 : 2)
   }
 
-  const peakDispY = peak ? clamp(applyTf(peak.norm, tf(peak.label)) ?? peak.norm, 0, 1) : 0
+  const peakDispY = peak ? clamp(applyStyle(peak.norm, tf(peak.label)) ?? peak.norm, 0, 1) : 0
+  const flagDecoders = useFlagDecoders()
   const readoutRows = useMemo(() => {
     if (cursorT == null || readoutMode === "none") return []
     const ordered: ChartSeries[] = []
@@ -1514,6 +1866,15 @@ function AnalysisPane({
     for (const item of paneSeries) add(item)
 
     return ordered.slice(0, readoutLimit).map((item) => {
+      const dec = decoderFor(item.signal.label, flagDecoders)
+      if (dec) {
+        const raw = stepValueAt(item.signal.data, cursorT)
+        return {
+          label: item.signal.label,
+          color: colorOf[item.signal.label],
+          value: `${raw ?? "--"} · ${describe(dec, decodeValue(dec, raw), true)}`,
+        }
+      }
       const sample = sampleAt(item.signal.data, cursorT)
       const value = sample?.value
       return {
@@ -1522,25 +1883,24 @@ function AnalysisPane({
         value: value == null ? "--" : `${fmt(value, item.signal.decimals)}${unitText(item.signal.unit)}`,
       }
     })
-  }, [colorOf, cursorT, focusKey, paneSeries, readoutLimit, readoutMode, selected])
+  }, [colorOf, cursorT, focusKey, paneSeries, readoutLimit, readoutMode, selected, flagDecoders])
 
   const cursorDots = useMemo(() => {
     if (!sync || cursorT == null) return []
     return paneSeries.flatMap((item) => {
       const sample = sampleAt(item.signal.data, cursorT)
       if (sample?.value == null) return []
-      const range = item.signal.max - item.signal.min || 1
-      const norm = (sample.value - item.signal.min) / range
+      const norm = normalize(sample.value, rangeOf[item.signal.label] ?? lineRange(item.signal))
       return [
         {
           label: item.signal.label,
           t: cursorT,
-          y: clamp(applyTf(norm, tf(item.signal.label)) ?? norm, 0, 1),
+          y: clamp(applyStyle(norm, tf(item.signal.label)) ?? norm, 0, 1),
           color: colorOf[item.signal.label],
         },
       ]
     })
-  }, [colorOf, cursorT, paneSeries, sync, transforms]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [colorOf, cursorT, paneSeries, sync, transforms, rangeOf]) // eslint-disable-line react-hooks/exhaustive-deps
   const readoutCanPick = readoutInteractive
 
   return (
@@ -1550,12 +1910,18 @@ function AnalysisPane({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
+      onDoubleClick={windowMode ? () => onWindowReset?.() : undefined}
       className={cn(
         "octane-analysis-pane relative w-full touch-none select-none px-2",
         heightClass,
-        annotateMode ? "cursor-crosshair" : "cursor-ew-resize",
+        annotateMode || windowMode ? "cursor-crosshair" : "cursor-ew-resize",
       )}
     >
+      {windowMode && !markPeaks && !annotateMode && (
+        <div className="pointer-events-none absolute left-1/2 top-1 z-10 -translate-x-1/2 whitespace-nowrap rounded-full border border-white/20 bg-background/80 px-2 py-0.5 text-center font-mono text-[10px] text-foreground">
+          Drag to set the shared time window · double-click to fit
+        </div>
+      )}
       {axisLabel && axisSig && (
         <span className="pointer-events-none absolute right-3 top-1 z-10 rounded bg-background/70 px-1 font-mono text-[10px]" style={{ color: axisColor }}>
           {axisLabel}
@@ -1628,7 +1994,9 @@ function AnalysisPane({
                 <span className="truncate" style={{ color: row.color }}>
                   {row.label}
                 </span>
-                <span className="tabular-nums text-foreground">{row.value}</span>
+                <span className="max-w-[13rem] truncate tabular-nums text-foreground" title={row.value}>
+                  {row.value}
+                </span>
               </button>
             ))}
           </div>
@@ -1691,10 +2059,10 @@ function AnalysisPane({
               <Area
                 key={key}
                 type={display.curve}
-                dataKey={(d: Record<string, number | null>) => applyTf(d[key] ?? null, tf(label))}
+                dataKey={(d: Record<string, number | null>) => applyStyle(d[key] ?? null, tf(label))}
                 name={label}
                 stroke={colorOf[label]}
-                strokeWidth={isActive ? display.lineWidth + 1 : display.lineWidth}
+                strokeWidth={(tf(label).width ?? display.lineWidth) + (isActive ? 1 : 0)}
                 strokeOpacity={!hasActive || isActive || !display.focusDim ? 1 : 0.22}
                 fill="none"
                 dot={false}
@@ -1704,6 +2072,21 @@ function AnalysisPane({
               />
             )
           })}
+          {winSel && (
+            <ReferenceArea
+              x1={Math.min(winSel[0], winSel[1])}
+              x2={Math.max(winSel[0], winSel[1])}
+              y1={0}
+              y2={1}
+              stroke="#ffffff"
+              strokeOpacity={0.85}
+              strokeDasharray="4 3"
+              fill="#ffffff"
+              fillOpacity={0.06}
+            />
+          )}
+          {winSel && <ReferenceLine x={winSel[0]} stroke="#ffffff" strokeWidth={3} strokeOpacity={0.9} />}
+          {winSel && <ReferenceLine x={winSel[1]} stroke="#ffffff" strokeWidth={3} strokeOpacity={0.9} />}
           {peak && (
             <ReferenceDot
               x={peak.t}

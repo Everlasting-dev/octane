@@ -124,6 +124,20 @@ ipcMain.handle("auth:login", async (_e, credentials) => {
 })
 ipcMain.handle("auth:logout", () => auth.logout())
 ipcMain.handle("auth:get-access-token", () => auth.getAccessToken())
+ipcMain.handle("licenses:list", async () => {
+  try {
+    return { ok: true, accounts: await auth.licenseList() }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+})
+ipcMain.handle("licenses:renew", async (_e, userId) => {
+  try {
+    return { ok: true, result: await auth.licenseRenew(String(userId || "")) }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+})
 ipcMain.handle("cloud-logs:list", () => cloudLogs.listLogs())
 ipcMain.handle("cloud-logs:upload", (_e, payload) => cloudLogs.uploadLog(payload))
 ipcMain.handle("cloud-logs:update", (_e, payload) => cloudLogs.updateLog(payload))
@@ -324,6 +338,7 @@ async function createWindow() {
   const winH = Math.max(600, Math.min(1200, Math.round(areaH * 0.85)))
 
   const win = new BrowserWindow({
+    icon: path.join(__dirname, "icon.png"),
     width: winW,
     height: winH,
     minWidth: 880,

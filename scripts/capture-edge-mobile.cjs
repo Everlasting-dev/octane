@@ -11,6 +11,8 @@ const outputChannels = path.resolve(process.argv[4] || "mobile-analysis-landscap
 const outputMatrix = path.resolve(process.argv[5] || "mobile-matrix-landscape-preview.png")
 const outputMatrixWindow = path.resolve(process.argv[6] || "mobile-matrix-landscape-window-preview.png")
 const port = 9223
+// The app no longer ships sample data: point this at a real log.
+const csvPath = process.env.OCTANE_CAPTURE_CSV
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -154,13 +156,17 @@ async function main() {
     })
     await cdp.send("Page.navigate", { url })
     console.log("Opened Octane")
-    await waitFor(cdp, `document.body.innerText.includes("Load sample data")`)
-    await clickButton(cdp, "Load sample data")
-    console.log("Loaded sample data")
+    if (!csvPath) throw new Error("Set OCTANE_CAPTURE_CSV to a CSV log to load.")
+    await waitFor(cdp, `document.querySelector('input[type=file]') !== null`)
+    await cdp.send("DOM.enable")
+    const { root } = await cdp.send("DOM.getDocument", { depth: -1 })
+    const { nodeId } = await cdp.send("DOM.querySelector", { nodeId: root.nodeId, selector: "input[type=file]" })
+    await cdp.send("DOM.setFileInputFiles", { nodeId, files: [path.resolve(csvPath)] })
+    console.log("Loaded", csvPath)
     await waitFor(cdp, `document.querySelector(".octane-mobile-simple-actions") !== null`)
     await sleep(800)
     await screenshot(cdp, outputMatrix)
-    await clickButton(cdp, "Window")
+    await clickButton(cdp, "Range")
     await sleep(500)
     await screenshot(cdp, outputMatrixWindow)
     await waitFor(cdp, `document.querySelector('[aria-label="Analysis Plot"]') !== null`)

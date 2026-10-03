@@ -6,13 +6,12 @@ import { cn } from "@/lib/utils"
 
 interface UploadZoneProps {
   onFile: (file: File) => void
-  onSample?: () => void
   loading?: boolean
   error?: string | null
   compact?: boolean
 }
 
-export function UploadZone({ onFile, onSample, loading, error, compact }: UploadZoneProps) {
+export function UploadZone({ onFile, loading, error, compact }: UploadZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false)
 
@@ -80,15 +79,6 @@ export function UploadZone({ onFile, onSample, loading, error, compact }: Upload
           >
             Browse files
           </button>
-          {onSample && (
-            <button
-              type="button"
-              onClick={onSample}
-              className="rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-secondary"
-            >
-              Load sample data
-            </button>
-          )}
         </div>
       )}
 

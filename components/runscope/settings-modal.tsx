@@ -12,10 +12,14 @@ import {
   loadBindings,
   saveBindings,
   keyLabel,
+  comboFromEvent,
+  isModifierKey,
+  sameCombo,
   type ActionId,
   type Bindings,
 } from "@/lib/keybindings"
 import { cn } from "@/lib/utils"
+import { loadFailsafeTable, saveFailsafeTable, type FailsafeTable } from "@/lib/flag-decoders"
 
 function ShortcutEditor() {
   const [bindings, setBindings] = useState<Bindings>(DEFAULT_BINDINGS)
@@ -33,14 +37,14 @@ function ShortcutEditor() {
         setRecording(null)
         return
       }
-      const key = e.key
+      // Wait for the real key while only Ctrl/Shift/Alt are held.
+      if (isModifierKey(e.key)) return
+      const combo = comboFromEvent(e)
       setBindings((prev) => {
         const next = { ...prev }
-        const other = (Object.keys(next) as ActionId[]).find(
-          (id) => id !== action && next[id].toLowerCase() === key.toLowerCase(),
-        )
-        if (other) next[other] = prev[action] // swap to keep keys unique
-        next[action] = key
+        const other = (Object.keys(next) as ActionId[]).find((id) => id !== action && sameCombo(next[id], combo))
+        if (other) next[other] = prev[action] // swap to keep combos unique
+        next[action] = combo
         saveBindings(next)
         return next
       })
@@ -80,13 +84,13 @@ function ShortcutEditor() {
                   : "border-border bg-secondary text-muted-foreground hover:text-foreground",
               )}
             >
-              {recording === a.id ? "press a key…" : keyLabel(bindings[a.id])}
+              {recording === a.id ? "press keys…" : keyLabel(bindings[a.id])}
             </button>
           </li>
         ))}
       </ul>
       <p className="text-[10px] leading-relaxed text-muted-foreground">
-        Single keys only · Esc cancels · Ctrl+O / Ctrl+K / ? stay fixed.
+        Click a shortcut, then press the new key or combo (Ctrl / Shift / Alt + key). A combo already in use swaps with it. Esc cancels.
       </p>
     </div>
   )
@@ -107,11 +111,13 @@ export function SettingsModal({
 }) {
   const [page, setPage] = useState<"main" | "keys">("main")
   const [vinMode, setVinModeState] = useState<VinMode>("online")
+  const [failsafeTable, setFailsafeTable] = useState<FailsafeTable>("phase6")
   // Always return to the main page each time the modal opens; sync VIN mode.
   useEffect(() => {
     if (open) {
       setPage("main")
       setVinModeState(getVinMode())
+      setFailsafeTable(loadFailsafeTable())
     }
   }, [open])
 
@@ -188,6 +194,31 @@ export function SettingsModal({
               </div>
               <p className="text-[10px] leading-relaxed text-muted-foreground">
                 Online uses the public NHTSA database; Local only decodes offline from the VIN; Off disables it.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 border-t border-border pt-4">
+              <span className="text-xs font-medium text-foreground">Failsafe flag decoding</span>
+              <div className="flex rounded-lg border border-border bg-secondary/40 p-0.5">
+                {(["phase6", "current"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => {
+                      saveFailsafeTable(m)
+                      setFailsafeTable(m)
+                    }}
+                    className={cn(
+                      "flex-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+                      failsafeTable === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {m === "phase6" ? "Phase 6 RaceROM" : "Newer RaceROM"}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] leading-relaxed text-muted-foreground">
+                Phase 6 (RaceROM 5xxxx): 16 = low relative fuel pressure, 32 = lean AFR. Newer RaceROM per EcuTek&apos;s current guide: 16 = lean AFR, 32 = low relative fuel pressure. CSP and MIL decoding is the same for both.
               </p>
             </div>
 

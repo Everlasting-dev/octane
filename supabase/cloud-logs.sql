@@ -1,14 +1,18 @@
 -- Octane admin-only Cloud Logs setup.
--- Run this once in the Supabase SQL editor for the Octane project.
+-- Run supabase/licenses.sql FIRST (it defines public.octane_owner()), then this file,
+-- in the Supabase SQL editor for the Octane project.
 
 create extension if not exists pgcrypto;
 
+-- Owner only (exact email set in licenses.sql), no more substring matching.
 create or replace function public.octane_cloud_admin()
 returns boolean
 language sql
 stable
+security definer
+set search_path = public
 as $$
-  select coalesce(auth.jwt() ->> 'email', '') ilike '%akramfariz%';
+  select public.octane_owner();
 $$;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)

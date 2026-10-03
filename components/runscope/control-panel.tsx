@@ -22,6 +22,9 @@ interface ControlPanelProps {
   onSyncChange: (v: boolean) => void
   annotate: boolean
   onAnnotateChange: (v: boolean) => void
+  /** Window mode: drag on any plot to set the shared time window. */
+  windowMode?: boolean
+  onWindowModeChange?: (v: boolean) => void
 
   onReset: () => void
   onFit: () => void
@@ -55,6 +58,8 @@ export function ControlPanel(props: ControlPanelProps) {
     onSyncChange,
     annotate,
     onAnnotateChange,
+    windowMode = false,
+    onWindowModeChange,
     onReset,
     onFit,
     windowSlot,
@@ -142,6 +147,11 @@ export function ControlPanel(props: ControlPanelProps) {
         <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Controls</span>
         <div className={cn("grid gap-2", mobile ? "grid-cols-3" : "grid-cols-2")}>
           <Toggle pressed={sync} onPressedChange={onSyncChange} label="Sync" />
+          {onWindowModeChange && (
+            <span title="Drag on any plot to set the shared time window (W)" className="contents">
+              <Toggle pressed={windowMode} onPressedChange={onWindowModeChange} label="Window" />
+            </span>
+          )}
           {!mobile && (
             <button
               type="button"

@@ -5,11 +5,20 @@
 const { app, safeStorage } = require("electron")
 const fs = require("node:fs/promises")
 const path = require("node:path")
+const crypto = require("node:crypto")
+const os = require("node:os")
+const { execFile } = require("node:child_process")
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://hgwmdowavadfbctlypin.supabase.co"
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "sb_publishable_wRhD8AZtNhOAXSv3k_f7Cg_5rzE11zp"
 const AUTH_GRACE_MS = 7 * 24 * 60 * 60 * 1000 // 7 days offline grace
-const LICENSE_MS = 30 * 24 * 60 * 60 * 1000
+// License: 15 days from the account's FIRST EVER login. The server
+// (supabase/licenses.sql) is the source of truth; until that SQL is deployed the
+// app falls back to the local rule below. Logout never resets either one.
+const LICENSE_MS = 15 * 24 * 60 * 60 * 1000
+const LICENSE_RECHECK_MS = 30 * 60 * 1000
+const MACHINE_SALT = "octane-license-v1"
+const ANCHOR_KEY = "HKLM\\SOFTWARE\\EverlastingDev\\Octane"
 
 function sessionPath() {
   return path.join(app.getPath("userData"), "auth-session.dat")
@@ -47,6 +56,96 @@ async function clearSession() {
   } catch {
     /* ignore */
   }
+}
+
+// --- License anchors (survive logout) ---------------------------------------
+
+function anchorPath() {
+  return path.join(app.getPath("userData"), "license-anchor.dat")
+}
+
+async function readAnchors() {
+  try {
+    const data = decodeSession(await fs.readFile(anchorPath()))
+    return data && typeof data === "object" ? data : {}
+  } catch {
+    return {}
+  }
+}
+
+function anchorOf(anchors, key) {
+  const v = anchors[key]
+  if (typeof v === "number") return { first: v } // older single-number format
+  return v && typeof v === "object" ? v : {}
+}
+
+/** Earliest known first-login per email; only ever moves earlier. */
+async function rememberFirstLogin(email, firstLoginAt) {
+  const key = String(email || "").toLowerCase()
+  if (!key || !Number.isFinite(firstLoginAt)) return firstLoginAt
+  const anchors = await readAnchors()
+  const prev = anchorOf(anchors, key)
+  const earliest = Number.isFinite(prev.first) && prev.first > 0 ? Math.min(prev.first, firstLoginAt) : firstLoginAt
+  if (earliest !== prev.first) {
+    anchors[key] = { ...prev, first: earliest }
+    try {
+      await fs.writeFile(anchorPath(), encodeSession(anchors))
+    } catch {
+      /* ignore */
+    }
+  }
+  return earliest
+}
+
+/** Cache the server's answer so an offline sign-in can't start a fresh window. */
+async function rememberServerLicense(email, license) {
+  const key = String(email || "").toLowerCase()
+  if (!key) return
+  const anchors = await readAnchors()
+  anchors[key] = { ...anchorOf(anchors, key), ...license }
+  try {
+    await fs.writeFile(anchorPath(), encodeSession(anchors))
+  } catch {
+    /* ignore */
+  }
+}
+
+async function cachedServerLicense(email) {
+  const key = String(email || "").toLowerCase()
+  return key ? anchorOf(await readAnchors(), key) : {}
+}
+
+function regQuery(key, value) {
+  return new Promise((resolve) => {
+    if (process.platform !== "win32") return resolve(null)
+    execFile("reg", ["query", key, "/v", value], { windowsHide: true, timeout: 4000 }, (err, stdout) => {
+      if (err) return resolve(null)
+      const m = String(stdout).match(new RegExp(`${value}\\s+REG_\\w+\\s+(.+)`, "i"))
+      resolve(m ? m[1].trim() : null)
+    })
+  })
+}
+
+let machineCache = null
+/** Stable, anonymous PC id + the CLI's locked first-seen time (if set). */
+async function machineInfo() {
+  if (machineCache) return machineCache
+  const guid = (await regQuery("HKLM\\SOFTWARE\\Microsoft\\Cryptography", "MachineGuid")) || os.hostname()
+  const machineId = crypto.createHash("sha256").update(`${MACHINE_SALT}:${guid.toLowerCase()}`).digest("hex")
+  const firstSeenRaw = await regQuery(ANCHOR_KEY, "FirstSeen")
+  const firstSeen = firstSeenRaw ? Date.parse(firstSeenRaw) : NaN
+  machineCache = {
+    machineId,
+    machineName: os.hostname(),
+    machineFirstSeen: Number.isFinite(firstSeen) && firstSeen > 0 ? firstSeen : null,
+  }
+  return machineCache
+}
+
+// Legacy owner rule, used ONLY until the license SQL is deployed (the server
+// then decides who the owner is by exact email).
+function legacyOwner(email) {
+  return typeof email === "string" && email.toLowerCase().includes("akramfariz")
 }
 
 async function supabaseAuthRequest(pathname, options = {}) {
@@ -109,7 +208,18 @@ function buildEnvelope(session, source = "login", previous = null) {
     expiresAt: session.expires_at ? session.expires_at * 1000 : now + Number(session.expires_in || 3600) * 1000,
     lastValidatedAt: now,
     source,
-    user: { ...nextUser, ...license },
+    user: {
+      ...nextUser,
+      ...license,
+      ...(sameUser(previous, nextUser)
+        ? {
+            isOwner: previous.user.isOwner,
+            licenseSource: previous.user.licenseSource,
+            licenseCheckedAt: previous.user.licenseCheckedAt,
+            clockOffsetMs: previous.user.clockOffsetMs,
+          }
+        : {}),
+    },
   }
 }
 
@@ -131,13 +241,100 @@ function withinGrace(env) {
   return !!env?.lastValidatedAt && Date.now() - env.lastValidatedAt <= AUTH_GRACE_MS
 }
 
+async function rpc(accessToken, fn, body = {}) {
+  return supabaseAuthRequest(`/rest/v1/rpc/${fn}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify(body),
+    // never let a slow network hold up app start; the cached license is used instead
+    signal: AbortSignal.timeout(8000),
+  })
+}
+
+function serverMissing(error) {
+  // PostgREST: function not found (SQL not deployed yet).
+  return error?.status === 404 || /PGRST202|could not find the function/i.test(String(error?.message || ""))
+}
+
+/**
+ * Ask the server for this account's license (creating it on the first ever
+ * call) and record this PC. Falls back to the local 15-day rule if the server
+ * side isn't deployed. Never throws.
+ */
+async function applyLicense(env) {
+  if (!env?.user) return env
+  const now = Date.now()
+  const machine = await machineInfo()
+  const localStart = await rememberFirstLogin(
+    env.user.email,
+    Math.min(
+      Number(env.user.firstLoginAt) || now,
+      machine.machineFirstSeen ?? Infinity,
+    ),
+  )
+  try {
+    const lic = await rpc(env.accessToken, "octane_license_claim", {
+      p_machine_id: machine.machineId,
+      p_machine_name: machine.machineName,
+      p_local_first_login: new Date(localStart).toISOString(),
+      p_app_version: app.getVersion(),
+    })
+    const firstLoginAt = Date.parse(lic.first_login_at)
+    const licenseExpiresAt = Date.parse(lic.expires_at)
+    const serverNow = Date.parse(lic.server_time)
+    await rememberFirstLogin(env.user.email, firstLoginAt)
+    await rememberServerLicense(env.user.email, { serverExpires: licenseExpiresAt, owner: !!lic.is_owner })
+    return {
+      ...env,
+      user: {
+        ...env.user,
+        firstLoginAt,
+        licenseExpiresAt,
+        isOwner: !!lic.is_owner,
+        licenseSource: "server",
+        licenseCheckedAt: now,
+        // clock skew guard: how far the PC clock is ahead of the server
+        clockOffsetMs: Number.isFinite(serverNow) ? now - serverNow : 0,
+      },
+    }
+  } catch (error) {
+    if (serverMissing(error)) {
+      return {
+        ...env,
+        user: {
+          ...env.user,
+          firstLoginAt: localStart,
+          licenseExpiresAt: localStart + LICENSE_MS,
+          isOwner: legacyOwner(env.user.email),
+          licenseSource: "local",
+          licenseCheckedAt: now,
+        },
+      }
+    }
+    // Offline / transient: last known server answer, else the anchored local rule.
+    const cached = await cachedServerLicense(env.user.email)
+    const knownOwner = typeof cached.owner === "boolean" ? cached.owner : env.user.isOwner
+    return {
+      ...env,
+      user: {
+        ...env.user,
+        firstLoginAt: localStart,
+        licenseExpiresAt: Number.isFinite(cached.serverExpires) ? cached.serverExpires : localStart + LICENSE_MS,
+        isOwner: knownOwner,
+        licenseSource: env.user.licenseSource || (Number.isFinite(cached.serverExpires) ? "server" : "local"),
+        // leave licenseCheckedAt alone so the next online check happens soon
+      },
+    }
+  }
+}
+
 async function refresh(env) {
   if (!env?.refreshToken) throw new Error("No refresh token saved.")
   const data = await supabaseAuthRequest("/auth/v1/token?grant_type=refresh_token", {
     method: "POST",
     body: JSON.stringify({ refresh_token: env.refreshToken }),
   })
-  const next = buildEnvelope(data, "refresh", ensureLicenseWindow(env))
+  const next = await applyLicense(buildEnvelope(data, "refresh", ensureLicenseWindow(env)))
   await writeSession(next)
   return next
 }
@@ -148,6 +345,15 @@ async function getState() {
   if (!saved?.accessToken) return { authenticated: false }
   if (saved !== raw) await writeSession(saved)
   if (Number(saved.expiresAt || 0) > Date.now() + 5 * 60 * 1000) {
+    const stale =
+      !saved.user?.licenseSource ||
+      Date.now() - Number(saved.user?.licenseCheckedAt || 0) > LICENSE_RECHECK_MS ||
+      Number(saved.user?.licenseExpiresAt || 0) <= Date.now()
+    if (stale) {
+      const next = await applyLicense(saved)
+      if (next !== saved) await writeSession(next)
+      return { authenticated: true, user: next.user }
+    }
     return { authenticated: true, user: saved.user }
   }
   // Near/after expiry: try to refresh, else fall back to offline grace.
@@ -169,14 +375,39 @@ async function login({ email, password }) {
     method: "POST",
     body: JSON.stringify({ email, password }),
   })
-  const env = buildEnvelope(data, "login", previous)
+  const env = await applyLicense(buildEnvelope(data, "login", previous))
   await writeSession(env)
   return { authenticated: true, user: env.user }
 }
 
 async function logout() {
+  // Only the sign-in session is removed. license-anchor.dat (first login per
+  // account) and the server record stay, so logging out never resets the 15 days.
   await clearSession()
   return { authenticated: false }
+}
+
+async function ownerToken() {
+  const state = await getState()
+  if (!state?.authenticated || !state.user?.isOwner) throw new Error("Only the Octane owner account can manage licenses.")
+  const token = await getAccessToken()
+  if (!token) throw new Error("Octane could not refresh your session. Sign in again and retry.")
+  return token
+}
+
+async function licenseList() {
+  const token = await ownerToken()
+  try {
+    return await rpc(token, "octane_license_list")
+  } catch (error) {
+    if (serverMissing(error)) throw new Error("The license tables aren't set up in Supabase yet. Run supabase/licenses.sql first.", { cause: error })
+    throw error
+  }
+}
+
+async function licenseRenew(userId) {
+  const token = await ownerToken()
+  return rpc(token, "octane_license_renew", { p_user: userId })
 }
 
 async function getAccessToken() {
@@ -194,4 +425,4 @@ async function getAccessToken() {
   return saved.accessToken
 }
 
-module.exports = { getState, login, logout, getAccessToken }
+module.exports = { getState, login, logout, getAccessToken, licenseList, licenseRenew }

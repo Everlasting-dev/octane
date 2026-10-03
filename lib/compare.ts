@@ -23,34 +23,38 @@ export interface DiffResult {
   stats: DiffStats | null
 }
 
-/** Linear interpolation of a {t,value} series onto target time points. */
+/**
+ * Linear interpolation of a {t,value} series onto ascending target time points.
+ * Single forward walk (two pointers), so it stays fast on long logs.
+ */
 function interpolate(series: SignalSample[], target: number[]): (number | null)[] {
-  return target.map((t) => {
-    let idx = 0
-    for (let i = 0; i < series.length - 1; i++) {
-      if (series[i].t <= t && series[i + 1].t >= t) {
-        idx = i
-        break
-      }
-      if (series[i].t > t) {
-        idx = i
-        break
-      }
+  const n = series.length
+  const out: (number | null)[] = new Array(target.length)
+  if (n === 0) return out.fill(null)
+  if (n === 1) {
+    const v = series[0].value
+    return out.fill(Number.isFinite(v) ? v : null)
+  }
+  let i = 0
+  for (let k = 0; k < target.length; k++) {
+    const t = target[k]
+    while (i < n - 2 && series[i + 1].t < t) i++
+    if (t >= series[n - 1].t) {
+      const last = series[n - 1].value
+      out[k] = Number.isFinite(last) ? last : null
+      continue
     }
-    if (idx >= series.length - 1) {
-      const last = series[series.length - 1]?.value
-      return Number.isFinite(last) ? last : null
-    }
-    const t0 = series[idx].t
-    const t1 = series[idx + 1].t
-    const v0 = series[idx].value
-    const v1 = series[idx + 1].value
+    const t0 = series[i].t
+    const t1 = series[i + 1].t
+    const v0 = series[i].value
+    const v1 = series[i + 1].value
     if (!Number.isFinite(v0) || !Number.isFinite(v1)) {
-      return Number.isFinite(v0) ? v0 : Number.isFinite(v1) ? v1 : null
+      out[k] = Number.isFinite(v0) ? v0 : Number.isFinite(v1) ? v1 : null
+      continue
     }
-    if (t1 === t0) return v0
-    return v0 + (v1 - v0) * ((t - t0) / (t1 - t0))
-  })
+    out[k] = t1 === t0 ? v0 : v0 + (v1 - v0) * ((t - t0) / (t1 - t0))
+  }
+  return out
 }
 
 function stdDev(values: number[], mean: number): number {

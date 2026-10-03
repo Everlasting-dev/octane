@@ -95,7 +95,7 @@ async function requireAdmin() {
     throw new Error("Cloud Logs need an active Octane sign-in.")
   }
   const user = state.user || {}
-  if (!isAdminEmail(user.email)) {
+  if (!(user.isOwner ?? isAdminEmail(user.email))) {
     throw new Error("Cloud Logs are only enabled for the Octane admin account.")
   }
   const token = await auth.getAccessToken()

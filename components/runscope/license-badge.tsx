@@ -9,15 +9,17 @@ export function LicenseBadge({
   email,
   firstLoginAt,
   expiresAt,
+  isOwner,
   compact = false,
 }: {
   email?: string | null
   firstLoginAt?: number | null
   expiresAt?: number | null
+  isOwner?: boolean
   compact?: boolean
 }) {
   const [now, setNow] = useState(Date.now)
-  const [license, setLicense] = useState<LicenseStatus>(() => getLicenseStatus(email, now, { firstLoginAt, expiresAt }))
+  const [license, setLicense] = useState<LicenseStatus>(() => getLicenseStatus(email, now, { firstLoginAt, expiresAt, isOwner }))
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60 * 1000)
@@ -25,8 +27,8 @@ export function LicenseBadge({
   }, [])
 
   useEffect(() => {
-    setLicense(getLicenseStatus(email, now, { firstLoginAt, expiresAt }))
-  }, [email, expiresAt, firstLoginAt, now])
+    setLicense(getLicenseStatus(email, now, { firstLoginAt, expiresAt, isOwner }))
+  }, [email, expiresAt, firstLoginAt, isOwner, now])
 
   const tone =
     license.status === "lifetime"
@@ -37,7 +39,7 @@ export function LicenseBadge({
   const expires = license.expiresAt ? new Date(license.expiresAt).toLocaleString() : "Never"
   const compactLabel =
     license.status === "lifetime"
-      ? "Admin - Lifetime"
+      ? "Owner - Lifetime"
       : license.status === "active"
         ? `Active - ${license.remainingLabel}`
         : license.status === "expired"

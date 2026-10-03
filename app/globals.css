@@ -486,6 +486,46 @@
     padding-top: calc(4.35rem + var(--octane-safe-top));
     padding-bottom: calc(7.4rem + var(--octane-safe-bottom));
   }
+
+  /*
+   * While the quick search is focused the soft keyboard covers the bottom of
+   * the screen. Move the search pill up under the header and hide the bottom
+   * bar so the browser never pans the page, and the (often single) matching
+   * plot renders right under the search instead of off-screen.
+   */
+  .octane-mobile-quick-search.is-active {
+    top: calc(3.85rem + var(--octane-safe-top));
+    bottom: auto !important;
+  }
+
+  .mobile-search-active .octane-mobile-simple-actions,
+  .mobile-search-active .octane-mobile-window-drawer {
+    display: none;
+  }
+
+  .mobile-search-active.mobile-matrix-mode main {
+    padding-top: calc(7.1rem + var(--octane-safe-top));
+    padding-bottom: calc(1rem + var(--octane-safe-bottom));
+  }
+
+  /* Decoded ECU flag strip sits above the fixed search pill + action bar. */
+  .mobile-matrix-mode .octane-flag-strip {
+    margin-bottom: calc(6.75rem + var(--octane-safe-bottom));
+  }
+
+  .mobile-search-active .octane-flag-strip {
+    display: none;
+  }
+
+  /* The strip already clears the bottom bars, so main needs little padding. */
+  .mobile-matrix-mode:has(.octane-flag-strip) main {
+    padding-bottom: 1rem;
+  }
+
+  /* Bigger, thumb-friendly channel dock on phones. */
+  .mobile-analysis-mode .octane-analysis-dock {
+    max-height: min(78dvh, 36rem);
+  }
 }
 
 @media (max-width: 1023px) and (orientation: portrait) {
@@ -649,6 +689,18 @@
 
   .octane-mobile-window-drawer {
     bottom: calc(5.85rem + var(--octane-safe-bottom));
+  }
+
+  .octane-mobile-quick-search.is-active {
+    top: calc(3.1rem + var(--octane-safe-top));
+  }
+
+  .mobile-search-active.mobile-matrix-mode main {
+    padding-top: calc(6rem + var(--octane-safe-top));
+  }
+
+  .mobile-matrix-mode .octane-flag-strip {
+    margin-bottom: calc(5.75rem + var(--octane-safe-bottom));
   }
 }
 

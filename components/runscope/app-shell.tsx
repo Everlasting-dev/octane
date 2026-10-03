@@ -8,7 +8,8 @@ import { LoginScreen } from "./login-screen"
 import { ErrorBoundary } from "./error-boundary"
 import { UpdateModal } from "./update-modal"
 import { AboutModal } from "./about-modal"
-import { getAuthState, logout, type AuthUser } from "@/lib/auth"
+import { getAuthState, isLicenseExpired, logout, type AuthUser } from "@/lib/auth"
+import { LicenseExpiredScreen } from "./licenses-dialog"
 import { parseLog, parseLogFile, type ParsedLog } from "@/lib/csv"
 import { acknowledgeDesktopOpen, getPendingDesktopOpen, subscribeToDesktopOpen, type DesktopOpenLogPayload } from "@/lib/desktop-files"
 import { friendlyAuthError, friendlyFileError, type FriendlyError } from "@/lib/friendly-errors"
@@ -35,13 +36,31 @@ export function AppShell() {
   const dashRef = useRef<DashboardHandle>(null)
   const handledDesktopOpenIds = useRef<Set<string>>(new Set())
 
-  useEffect(() => {
+  const refreshAuth = useCallback(() => {
     getAuthState().then((s) => {
       setAuthUser(s.user ?? null)
       setAuthError(!s.authenticated && (s.error || s.message) ? friendlyAuthError(s.error || s.message) : null)
       setAuthState(s.authenticated ? "in" : "out")
     })
   }, [])
+
+  useEffect(() => {
+    refreshAuth()
+  }, [refreshAuth])
+
+  // License clock: re-evaluate every minute (expiry while the app is open) and
+  // re-ask the server every 10 minutes (picks up the owner's renewals).
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (authState !== "in") return
+    const tick = window.setInterval(() => setNow(Date.now()), 60 * 1000)
+    const recheck = window.setInterval(refreshAuth, 10 * 60 * 1000)
+    return () => {
+      window.clearInterval(tick)
+      window.clearInterval(recheck)
+    }
+  }, [authState, refreshAuth])
+  const licenseLocked = authState === "in" && isLicenseExpired(authUser, now)
 
   const openLog = useCallback((log: ParsedLog | null) => {
     if (!inAnalysis) {
@@ -189,6 +208,24 @@ export function AppShell() {
           }}
         />
         {desktopErrorBanner}
+        <AboutModal open={showAbout} onClose={() => setShowAbout(false)} />
+        <UpdateModal />
+      </>
+    )
+  }
+
+  if (licenseLocked) {
+    return (
+      <>
+        <LicenseExpiredScreen
+          email={authUser?.email}
+          expiresAt={authUser?.licenseExpiresAt}
+          onSignOut={() => void signOut()}
+          onRetry={() => {
+            setNow(Date.now())
+            refreshAuth()
+          }}
+        />
         <AboutModal open={showAbout} onClose={() => setShowAbout(false)} />
         <UpdateModal />
       </>

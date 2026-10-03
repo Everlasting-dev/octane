@@ -6,6 +6,7 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  ReferenceArea,
   ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
@@ -18,6 +19,7 @@ import type { DisplaySettings } from "./display-panel"
 import type { DiffStats } from "@/lib/compare"
 import { lttb } from "@/lib/downsample"
 import { colorForType, type Annotation } from "@/lib/annotations"
+import { decodeValue, decoderFor, describe, stepValueAt, useFlagDecoders } from "@/lib/flag-decoders"
 
 const HEIGHT_CLASS: Record<DisplaySettings["height"], string> = {
   mini: "h-20 sm:h-24",
@@ -31,6 +33,9 @@ const RENDER_POINTS = 700
 
 // Approx card heights so off-screen charts reserve space (content-visibility).
 const INTRINSIC: Record<DisplaySettings["height"], number> = { mini: 170, compact: 230, normal: 300, tall: 360 }
+export const CHART_INTRINSIC_HEIGHT = INTRINSIC
+/** Minimum horizontal drag (px) before a window-mode drag counts. */
+const WINDOW_DRAG_PX = 6
 
 export interface ChartSeries {
   id: string
@@ -58,6 +63,10 @@ interface SignalChartProps {
   onToggleCollapse: (key: string) => void
   onCursorChange: (t: number | null) => void
   onAddAnnotation: (t: number, channel: string) => void
+  /** Window mode: drag across the plot to set the shared time window. */
+  windowMode?: boolean
+  onWindowSelect?: (start: number, end: number) => void
+  onWindowReset?: () => void
 }
 
 function fmt(v: number, decimals: number) {
@@ -130,11 +139,16 @@ function SignalChartImpl({
   onToggleCollapse,
   onCursorChange,
   onAddAnnotation,
+  windowMode = false,
+  onWindowSelect,
+  onWindowReset,
 }: SignalChartProps) {
   const isCompare = series.length > 1
   const primary = series[0]
   const chartRef = useRef<HTMLDivElement>(null)
   const [localCursorT, setLocalCursorT] = useState<number | null>(null)
+  const winRef = useRef<{ startX: number; t0: number; moved: boolean } | null>(null)
+  const [winSel, setWinSel] = useState<[number, number] | null>(null)
   const effectiveCursorT = sync ? cursorT : localCursorT
   const yAxisWidth = unitText(unit) ? 58 : 44
 
@@ -171,6 +185,19 @@ function SignalChartImpl({
     if (effectiveCursorT == null || !primary) return null
     return sampleAt(primary.signal.data, effectiveCursorT)
   }, [effectiveCursorT, primary])
+  // ECU bitfield channels (CSP / Failsafe / MIL): exact step value + decoded text.
+  const decoders = useFlagDecoders()
+  const flagDec = useMemo(() => decoderFor(label, decoders), [label, decoders])
+  const flag = useMemo(() => {
+    if (!flagDec || effectiveCursorT == null || !primary) return null
+    const raw = stepValueAt(primary.signal.data, effectiveCursorT)
+    return { raw, text: describe(flagDec, decodeValue(flagDec, raw)) }
+  }, [flagDec, effectiveCursorT, primary])
+  // Compare: every file's value at the cursor.
+  const compareValues = useMemo(() => {
+    if (!isCompare || effectiveCursorT == null) return null
+    return series.map((s) => ({ id: s.id, name: s.name, color: s.color, value: sampleAt(s.signal.data, effectiveCursorT)?.value ?? null }))
+  }, [isCompare, effectiveCursorT, series])
 
   function setCursorTime(t: number) {
     if (sync) onCursorChange(t)
@@ -187,6 +214,7 @@ function SignalChartImpl({
   }
 
   function handleClick(state: { activeLabel?: string | number } | null) {
+    if (windowMode && !annotateMode) return
     if (state?.activeLabel == null) return
     const t = Number(state.activeLabel)
     if (annotateMode) onAddAnnotation(t, label)
@@ -197,7 +225,7 @@ function SignalChartImpl({
   const draggingRef = useRef(false)
   const touchStartRef = useRef<{ x: number; y: number; moved: boolean } | null>(null)
   function handleMouseDown(state: { activeLabel?: string | number } | null) {
-    if (annotateMode || state?.activeLabel == null) return
+    if (windowMode || annotateMode || state?.activeLabel == null) return
     draggingRef.current = true
     const t = Number(state.activeLabel)
     setCursorTime(t)
@@ -211,6 +239,15 @@ function SignalChartImpl({
     draggingRef.current = false
   }
   function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (windowMode && !annotateMode) {
+      if (!chartRef.current) return
+      if (event.pointerType === "mouse" && event.button !== 0) return
+      winRef.current = { startX: event.clientX, t0: pointerToT(event.clientX), moved: false }
+      setWinSel(null)
+      event.currentTarget.setPointerCapture(event.pointerId)
+      if (event.pointerType === "mouse") event.preventDefault()
+      return
+    }
     if (event.pointerType === "mouse") return
     if (!chartRef.current) return
     touchStartRef.current = { x: event.clientX, y: event.clientY, moved: false }
@@ -221,6 +258,14 @@ function SignalChartImpl({
     setCursorTime(pointerToT(event.clientX))
   }
   function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
+    if (winRef.current) {
+      if (Math.abs(event.clientX - winRef.current.startX) >= WINDOW_DRAG_PX) winRef.current.moved = true
+      if (winRef.current.moved) {
+        event.preventDefault()
+        setWinSel([winRef.current.t0, pointerToT(event.clientX)])
+      }
+      return
+    }
     if (event.pointerType === "mouse") return
     if (touchStartRef.current) {
       if (Math.abs(event.clientX - touchStartRef.current.x) > 3 || Math.abs(event.clientY - touchStartRef.current.y) > 3) {
@@ -232,6 +277,16 @@ function SignalChartImpl({
     setCursorTime(pointerToT(event.clientX))
   }
   function handlePointerUp(event: PointerEvent<HTMLDivElement>) {
+    if (winRef.current) {
+      const w = winRef.current
+      winRef.current = null
+      setWinSel(null)
+      const t1 = pointerToT(event.clientX)
+      if (w.moved && t1 !== w.t0) onWindowSelect?.(Math.min(w.t0, t1), Math.max(w.t0, t1))
+      else setCursorTime(t1)
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+      return
+    }
     if (event.pointerType === "mouse") return
     if (annotateMode && touchStartRef.current && !touchStartRef.current.moved) onAddAnnotation(pointerToT(event.clientX), label)
     touchStartRef.current = null
@@ -239,6 +294,8 @@ function SignalChartImpl({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
   }
   function handlePointerCancel(event: PointerEvent<HTMLDivElement>) {
+    winRef.current = null
+    setWinSel(null)
     if (event.pointerType === "mouse") return
     touchStartRef.current = null
     draggingRef.current = false
@@ -335,10 +392,11 @@ function SignalChartImpl({
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerCancel}
+            onDoubleClick={windowMode ? () => onWindowReset?.() : undefined}
             className={cn(
               "w-full touch-pan-y select-none px-2",
               HEIGHT_CLASS[display.height],
-              annotateMode ? "cursor-crosshair" : "cursor-ew-resize",
+              annotateMode || windowMode ? "cursor-crosshair" : "cursor-ew-resize",
             )}
           >
             <ResponsiveContainer width="100%" height="100%">
@@ -401,6 +459,19 @@ function SignalChartImpl({
                     label={{ value: a.type, position: "insideTopLeft", fontSize: 10, fill: colorForType(a.type) }}
                   />
                 ))}
+                {winSel && (
+                  <ReferenceArea
+                    x1={Math.min(winSel[0], winSel[1])}
+                    x2={Math.max(winSel[0], winSel[1])}
+                    stroke="#ffffff"
+                    strokeOpacity={0.85}
+                    strokeDasharray="4 3"
+                    fill="#ffffff"
+                    fillOpacity={0.06}
+                  />
+                )}
+                {winSel && <ReferenceLine x={winSel[0]} stroke="#ffffff" strokeWidth={3} strokeOpacity={0.9} />}
+                {winSel && <ReferenceLine x={winSel[1]} stroke="#ffffff" strokeWidth={3} strokeOpacity={0.9} />}
                 {keys.map((key, i) => (
                   <Area
                     key={key}
@@ -421,7 +492,23 @@ function SignalChartImpl({
           </div>
 
           <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-2.5 font-mono text-xs sm:px-4">
-            {cursorValue ? (
+            {compareValues ? (
+              <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-foreground">
+                <Crosshair className="size-3.5 text-primary" />
+                <span className="tabular-nums">
+                  {fmt(effectiveCursorT ?? 0, 2)}
+                  {timeUnit}
+                </span>
+                {compareValues.map((row) => (
+                  <span key={row.id} className="tabular-nums" style={{ color: row.color }} title={row.name}>
+                    {row.value == null ? "—" : fmt(row.value, decimals)}
+                  </span>
+                ))}
+                {compareValues.length > 1 && compareValues[0].value != null && compareValues[1].value != null && (
+                  <span className="tabular-nums text-muted-foreground">Δ {fmt(compareValues[0].value - compareValues[1].value, decimals)}</span>
+                )}
+              </span>
+            ) : cursorValue ? (
               <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-foreground">
                 <Crosshair className="size-3.5 text-primary" />
                 <span className="text-muted-foreground">t =</span>
@@ -431,8 +518,13 @@ function SignalChartImpl({
                 </span>
                 <span className="text-border">·</span>
                 <span className="tabular-nums" style={{ color: primary?.color }}>
-                  {cursorValue.value == null ? "—" : fmt(cursorValue.value, decimals)} {unit !== "—" ? unit : ""}
+                  {flag ? (flag.raw ?? "—") : cursorValue.value == null ? "—" : fmt(cursorValue.value, decimals)} {unit !== "—" ? unit : ""}
                 </span>
+                {flag && (
+                  <span className="min-w-0 text-muted-foreground" title={flag.text}>
+                    · {flag.text}
+                  </span>
+                )}
               </span>
             ) : (
               <span className="flex items-center gap-2 text-muted-foreground">
@@ -440,6 +532,11 @@ function SignalChartImpl({
                   <>
                     <MapPin className="size-3.5 text-primary" />
                     Click the plot to drop an annotation
+                  </>
+                ) : windowMode ? (
+                  <>
+                    <Crosshair className="size-3.5 text-primary" />
+                    Drag across the plot to set the shared time window
                   </>
                 ) : (
                   <>

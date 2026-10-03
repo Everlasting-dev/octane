@@ -60,6 +60,11 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
+        url: assetPath('/favicon.ico'),
+        sizes: '16x16 32x32 48x48',
+        type: 'image/x-icon',
+      },
+      {
         url: assetPath('/icon-light-32x32.png'),
         sizes: '32x32',
         type: 'image/png',
@@ -86,7 +91,7 @@ export const metadata: Metadata = {
         type: 'image/png',
       },
     ],
-    shortcut: assetPath('/icon.svg'),
+    shortcut: assetPath('/favicon.ico'),
     apple: assetPath('/apple-icon.png'),
   },
 }
@@ -95,6 +100,9 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
+  // Android Chrome: the soft keyboard shrinks the layout (not just the visual
+  // viewport), so fixed search bars and results stay on screen while typing.
+  interactiveWidget: 'resizes-content',
   colorScheme: 'dark',
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: '#111827' },

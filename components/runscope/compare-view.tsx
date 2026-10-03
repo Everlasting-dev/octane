@@ -6,15 +6,16 @@ import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, XAx
 import { lttb } from "@/lib/downsample"
 import { calculateDiff } from "@/lib/compare"
 import { cn } from "@/lib/utils"
+import { COMPARE_FILE_COLORS } from "@/lib/palette"
 import type { ParsedLog } from "@/lib/csv"
 import type { SignalSample } from "@/lib/telemetry"
-import type { Template } from "@/lib/templates"
+import { resolveTemplateLabels, type Template } from "@/lib/templates"
 import type { DisplaySettings } from "./display-panel"
 
 const RENDER_POINTS = 600
 const MAX_FILES = 3
 const MAX_CH = 3
-const FILE_COLORS = ["#4aa8ff", "#4cd397", "#ffb454"]
+const FILE_COLORS = COMPARE_FILE_COLORS
 const LEFT = 52
 const RIGHT = 16
 
@@ -198,7 +199,7 @@ function CompareArea({
   }
   function applyTemplate(id: string) {
     const t = templates.find((x) => x.id === id)
-    if (t) onSetAreaChannels(areaIdx, t.channels.slice(0, MAX_CH))
+    if (t) onSetAreaChannels(areaIdx, resolveTemplateLabels(t, allLabels).slice(0, MAX_CH))
   }
 
   return (

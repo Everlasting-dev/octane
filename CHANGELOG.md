@@ -8,6 +8,61 @@ published as GitHub releases or tags, and the only public release is the
 current `0.9.x` line. Their entries are kept below for history and are marked
 accordingly. Version numbers therefore decrease part-way down this file.
 
+## v0.9.7 - 2026-10-03
+
+### Added (icon, license, install menu)
+
+- New Octane icon everywhere: the app window and taskbar, the installer, browser favicons and the phone home-screen icon (PWA, maskable and Apple touch icons), plus the logo inside the app.
+- Licenses are now kept on the Octane server: each account gets 15 days from its first ever sign-in. Logging out, reinstalling or deleting app data never restarts the clock, and every PC an account uses is recorded.
+- When the 15 days run out the app shows a "License expired" screen until the owner renews it. The owner never expires.
+- Owner-only **Licenses** panel (top bar, next to Cloud Logs): every account with its first sign-in, expiry, renewals and PCs, and a **Renew 15 days** button.
+- Owner rights (Cloud Logs, Licenses, the shared template pack) now match one exact email set on the server, instead of any address containing a name.
+- The install menu at `everlasting-dev.github.io/get` has an Octane section: install/update, check & repair, lock the license on this PC, get the shared template pack (the PC's own templates are backed up privately to the owner first), publish the pack and collect backups (owner). Every option in the Octane and Slip menus now has a one-line description.
+
+### Changed
+
+- Built-in templates installed from the shared pack are kept on first start instead of being replaced by the defaults.
+
+### Added (ECU flag decoding)
+
+- CSP Flags, Failsafe Flags, Failsafe Stored Flags and MIL Source are decoded into plain conditions, e.g. CSP 29 = outside upshift exclusion time + min input shaft speed + min load + min slip error.
+- A subtle strip under the plots shows Failsafe, Stored, MIL and CSP at the cursor (or the end of the window), coloured by severity. Each failsafe trip in the log is a button that jumps the cursor to it.
+- Matrix chart footers, the Analysis readout and the Channels Values pane show the decoded text for those channels, using the exact logged value rather than an interpolated one.
+- Settings → Failsafe flag decoding: Phase 6 RaceROM (default; 16 = low relative fuel pressure, 32 = lean AFR) or newer RaceROM (16 and 32 swapped, plus bits 256 and up).
+
+### Changed (templates and shortcuts)
+
+- Templates and Channels presets are now one shared list, saved in one templates file. The Analysis Plot, the Channels tabs, Compare and the phone picker all use it. Built-ins: General, Fuel, Ignition, VVTi, Speeds (vehicle + wheel speeds, speed/RPM/gear, traction), GR6 (clutch slip with RPM and gear, shifts, torque, drivetrain), Boost, Temps, Idle, E-throttle and Ethanol, each with its own graphs. Your own templates and custom Channels presets carry over; the old duplicate Speed / Wheel speeds entries are gone.
+- **Edit templates** (Channels view) edits that shared list: templates, their graphs and the channels in each graph.
+- Window mode switches itself off once you've dragged out a time range (PC and phone).
+- `←` / `→` now move the value cursor one sample at a time; `Shift` + `←` / `→` shift the time window.
+- Every shortcut can be changed in Settings → Key bindings, including combos with Ctrl, Shift or Alt. Only Esc is fixed.
+
+### Added
+
+- Window mode: turn on **Window** (or press `W`) and drag across any Signal Matrix, Analysis or Channels graph to set the shared time window, like the old EcuTek viewer. Works with touch on phones; double-click a graph to fit the full log again.
+- **Lines** panel (button or `T`): per-line colour, scale min/max with ▲/▼ nudges, gain, shift and line weight, plus Auto scale and Reset all. Opens as a side panel on desktop and a bottom sheet on phones.
+- Keyboard line control in the Analysis Plot: `[` / `]` pick a line, `Ctrl` + `=`/`-` scale it, `Ctrl` + `↑`/`↓` move it, `Ctrl+Shift` + `=`/`-` change its weight, `Ctrl+0` resets it.
+- Keyboard time control everywhere: `=`/`-` zoom the time window around the cursor, `←`/`→` pan it (hold `Shift` for bigger steps).
+- Compare now opens as a signal matrix of every channel the loaded logs share, one graph per channel with each file overlaid and per-file values at the cursor. The previous overlay areas are one click away.
+- Phone Analysis channel picker: large rows, **Channel list | Templates** tabs and a **Deselect all** button. Up to 10 lines (was 6).
+
+### Changed
+
+- Signal Matrix shows every channel when a log loads (desktop). Graphs mount as you scroll, so big logs stay responsive.
+- The Analysis Plot keeps its own line selection, starting from the General template, so the matrix can show everything while the overlay stays readable.
+- Channels presets list your templates first (General, Fuel, Ignition, Speed and your own), each split automatically into separate graphs by channel type. The specialist presets follow.
+- The Channels view opens with just the graphs; the Values pane is opt-in.
+- Low-variance channels such as battery voltage and ethanol content are drawn as quiet, near-flat lines instead of being stretched to full height.
+- Every visible line gets its own colour; colours stay put while other lines are toggled.
+- Each opened CSV remembers its own time window per view, so switching files and back restores the range you selected.
+- Phone quick search moves to the top while you type and hides the bottom bar, so a single matching plot stays visible above the keyboard.
+- Phone Signal Matrix bottom bar: **Window** toggles drag-to-select; the time brush moved to **Range**.
+
+### Removed
+
+- The "Load sample data" buttons on the landing page and empty state.
+
 ## v0.9.6 - 2026-09-25
 
 ### Added

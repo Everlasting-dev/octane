@@ -7,18 +7,14 @@ import type { ViewMode } from "./rail"
 
 const GROUPS: { context: ActionContext; title: string }[] = [
   { context: "plot", title: "Analysis Plot" },
+  { context: "time", title: "Time & cursor" },
   { context: "channels", title: "Channels" },
   { context: "matrix", title: "Signal Matrix" },
   { context: "compare", title: "Compare" },
   { context: "global", title: "General" },
 ]
 
-const FIXED: { combo: string; label: string }[] = [
-  { combo: "Ctrl+O", label: "Open log" },
-  { combo: "Ctrl+K", label: "Search channels" },
-  { combo: "?", label: "Toggle this cheat-sheet" },
-  { combo: "Esc", label: "Close / exit current mode" },
-]
+const FIXED: { combo: string; label: string }[] = [{ combo: "Esc", label: "Close / exit current mode" }]
 
 function viewContext(view: ViewMode): ActionContext {
   return view === "plot" ? "plot" : view === "channels" ? "channels" : view === "compare" ? "compare" : "matrix"
@@ -98,7 +94,7 @@ export function ShortcutsModal({ open, view, onClose }: { open: boolean; view: V
           </section>
 
           <p className="text-[10px] leading-relaxed text-muted-foreground">
-            Single-key shortcuts are remappable in Settings → Key bindings.
+            Every shortcut except Esc can be changed in Settings → Key bindings.
           </p>
         </div>
       </div>
