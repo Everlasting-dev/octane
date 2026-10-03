@@ -7,7 +7,6 @@ import {
   Cloud,
   Download,
   HelpCircle,
-  KeyRound,
   Keyboard,
   LayoutList,
   LineChart,
@@ -50,7 +49,8 @@ import {
 } from "@/lib/templates"
 import { TemplateEditor, templateGroups } from "./template-editor"
 import { useShortcuts, type Shortcut } from "@/hooks/use-shortcuts"
-import { canonicalKey, matchesKey, useBindings } from "@/lib/keybindings"
+import { canonicalKey, keyLabel, matchesKey, useBindings } from "@/lib/keybindings"
+import { useCursorSpeed } from "@/lib/cursor-speed"
 import { isMobileViewportNow, useMobileViewport } from "@/lib/viewport"
 import { Rail, type ViewMode } from "./rail"
 import { ControlPanel, type ChannelItem } from "./control-panel"
@@ -410,6 +410,7 @@ export const Dashboard = forwardRef<
   const [showAbout, setShowAbout] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [settingsPage, setSettingsPage] = useState<"main" | "keys">("main")
   const [showMetadata, setShowMetadata] = useState(false)
   const [showCloudLogs, setShowCloudLogs] = useState(false)
   const [quickOpen, setQuickOpen] = useState(false)
@@ -1269,11 +1270,12 @@ export const Dashboard = forwardRef<
   useShortcuts(shortcuts, hasLogs)
 
   // Value cursor on the arrow keys (remappable): a tap moves exactly one sample;
-  // holding the key glides the cursor at a steady on-screen speed (crosses the
-  // visible window in ~5 s, twice as fast after 2 s), driven by animation frames
-  // instead of the OS key-repeat, so it never queues up or jumps.
-  const glideState = useRef({ cursorT, domain, duration })
-  glideState.current = { cursorT, domain, duration }
+  // holding the key glides the cursor at a steady on-screen speed (Settings →
+  // Cursor glide speed), driven by animation frames instead of the OS
+  // key-repeat, so it never queues up or jumps.
+  const secondsPerScreen = useCursorSpeed()
+  const glideState = useRef({ cursorT, domain, duration, secondsPerScreen })
+  glideState.current = { cursorT, domain, duration, secondsPerScreen }
   const moveCursorRef = useRef(moveCursor)
   moveCursorRef.current = moveCursor
   useEffect(() => {
@@ -1294,7 +1296,8 @@ export const Dashboard = forwardRef<
       let [a, b] = st.domain
       const width = b - a
       if (width <= 0 || st.duration <= 0) return
-      const speed = (width / 5) * (now - g.start > 2000 ? 2 : 1)
+      // crosses the visible window in N seconds (Settings → Cursor glide speed)
+      const speed = width / Math.max(1, st.secondsPerScreen)
       const from = st.cursorT ?? (a + b) / 2
       const t = Math.max(0, Math.min(st.duration, from + g.dir * speed * dt))
       // keep the cursor inside the window: the window slides along with it
@@ -1466,6 +1469,7 @@ export const Dashboard = forwardRef<
                 firstLoginAt={accountUser?.firstLoginAt}
                 expiresAt={accountUser?.licenseExpiresAt}
                 isOwner={accountUser?.isOwner}
+                onClick={canUseCloudLogs && accountUser ? () => setShowLicenses(true) : undefined}
                 compact
               />
             </span>
@@ -1481,18 +1485,7 @@ export const Dashboard = forwardRef<
                 <span className="octane-action-label hidden xl:inline">Cloud Logs</span>
               </button>
             )}
-            {canUseCloudLogs && accountUser && (
-              <button
-                type="button"
-                onClick={() => setShowLicenses(true)}
-                title="Licenses (owner)"
-                aria-label="Licenses"
-                className="hidden items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-secondary lg:inline-flex"
-              >
-                <KeyRound className="size-3.5" />
-                <span className="octane-action-label hidden xl:inline">Licenses</span>
-              </button>
-            )}
+
             {hasLogs && (
               <div className="octane-mobile-view-toggle inline-flex items-center rounded-md border border-border bg-card p-0.5 lg:hidden" aria-label="Mobile view switcher">
                 <button
@@ -1724,6 +1717,8 @@ export const Dashboard = forwardRef<
                     cursorT={sync ? cursorT : null}
                     templates={templates}
                     onSetActiveFile={setActiveCompareFile}
+                    windowMode={windowMode}
+                    onWindowSelect={selectWindow}
                     onRemoveFile={(name) => {
                       const idx = logs.findIndex((l) => l.fileName === name)
                       if (idx >= 0) removeLog(idx)
@@ -2095,14 +2090,46 @@ export const Dashboard = forwardRef<
         )}
       </div>
 
+      {windowMode && hasLogs && (
+        <div className="pointer-events-none fixed inset-x-0 top-16 z-[45] flex justify-center px-4 lg:top-[4.25rem]">
+          <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-primary/50 bg-popover/95 px-4 py-1.5 text-xs text-foreground shadow-2xl backdrop-blur">
+            <span className="size-2 animate-pulse rounded-full bg-primary" />
+            <span>
+              <span className="font-semibold">Window mode</span> · drag across any graph to choose a time range
+            </span>
+            <span className="hidden text-muted-foreground sm:inline">Esc cancels · {keyLabel(bindings.windowMode)} toggles</span>
+            <button
+              type="button"
+              onClick={() => setWindowMode(false)}
+              aria-label="Cancel window mode"
+              className="inline-flex size-5 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
       <AboutModal open={showAbout} onClose={() => setShowAbout(false)} />
-      <ShortcutsModal open={showShortcuts} view={view} onClose={() => setShowShortcuts(false)} />
+      <ShortcutsModal
+        open={showShortcuts}
+        view={view}
+        onClose={() => setShowShortcuts(false)}
+        onEditBindings={() => {
+          setShowShortcuts(false)
+          setSettingsPage("keys")
+          setShowSettings(true)
+        }}
+      />
       <SettingsModal
         open={showSettings}
+        initialPage={settingsPage}
         settings={display}
         onChange={setDisplay}
         onReset={() => setDisplay(DEFAULT_DISPLAY)}
-        onClose={() => setShowSettings(false)}
+        onClose={() => {
+          setShowSettings(false)
+          setSettingsPage("main")
+        }}
       />
       <MetadataModal open={showMetadata} log={activeLog ?? null} onClose={() => setShowMetadata(false)} />
       <LicensesDialog open={showLicenses} onClose={() => setShowLicenses(false)} />

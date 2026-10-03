@@ -2,10 +2,10 @@
 
 import { useMemo, useRef, useState, type CSSProperties } from "react"
 import { GripHorizontal, Lock, LockOpen, RotateCcw, X } from "lucide-react"
-import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from "recharts"
+import { Area, AreaChart, CartesianGrid, ReferenceArea, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from "recharts"
 import { lttb } from "@/lib/downsample"
 import { calculateDiff } from "@/lib/compare"
-import { cn } from "@/lib/utils"
+import { cn, releaseFocus } from "@/lib/utils"
 import { COMPARE_FILE_COLORS } from "@/lib/palette"
 import type { ParsedLog } from "@/lib/csv"
 import type { SignalSample } from "@/lib/telemetry"
@@ -30,6 +30,9 @@ export interface CompareViewProps {
   cursorT: number | null
   templates: Template[]
   onSetActiveFile: (name: string) => void
+  /** Window mode: drag across a graph to set the shared time window (turns itself off after). */
+  windowMode?: boolean
+  onWindowSelect?: (start: number, end: number) => void
   /** close this file (removes it from the loaded logs) */
   onRemoveFile?: (name: string) => void
   onSetOffset: (name: string, offset: number) => void
@@ -185,6 +188,8 @@ export function CompareView(props: CompareViewProps) {
 }
 
 function CompareArea({
+  windowMode = false,
+  onWindowSelect,
   areaIdx,
   channels,
   files,
@@ -305,6 +310,8 @@ function CompareArea({
               locked={locked}
               onSetOffset={onSetOffset}
               onCursorChange={onCursorChange}
+              windowMode={windowMode}
+              onWindowSelect={onWindowSelect}
             />
           ))}
         </div>
@@ -327,6 +334,8 @@ function ChannelFacet({
   locked,
   onSetOffset,
   onCursorChange,
+  windowMode = false,
+  onWindowSelect,
 }: {
   label: string
   files: ParsedLog[]
@@ -341,8 +350,12 @@ function ChannelFacet({
   locked: boolean
   onSetOffset: (name: string, offset: number) => void
   onCursorChange: (t: number | null) => void
+  windowMode?: boolean
+  onWindowSelect?: (start: number, end: number) => void
 }) {
   const wrapRef = useRef<HTMLDivElement>(null)
+  const winRef = useRef<{ startX: number; t0: number; moved: boolean } | null>(null)
+  const [winSel, setWinSel] = useState<[number, number] | null>(null)
   const dragRef = useRef<{ startX: number; startOffset: number; moved: boolean; width: number } | null>(null)
   const cursorRef = useRef(false)
 
@@ -406,8 +419,15 @@ function ChannelFacet({
 
   function onPointerDown(e: React.PointerEvent) {
     if (!wrapRef.current) return
+    releaseFocus()
     e.preventDefault()
     wrapRef.current.setPointerCapture(e.pointerId)
+    // Window mode wins over aligning / scrubbing, locked or not.
+    if (windowMode) {
+      winRef.current = { startX: e.clientX, t0: pointerToT(e.clientX), moved: false }
+      setWinSel(null)
+      return
+    }
     // Unlocked + an active file → drag aligns it. Locked (or no active) → scrub cursor.
     if (!locked && activeFile) {
       const rect = wrapRef.current.getBoundingClientRect()
@@ -418,6 +438,11 @@ function ChannelFacet({
     }
   }
   function onPointerMove(e: React.PointerEvent) {
+    if (winRef.current) {
+      if (Math.abs(e.clientX - winRef.current.startX) >= 6) winRef.current.moved = true
+      if (winRef.current.moved) setWinSel([winRef.current.t0, pointerToT(e.clientX)])
+      return
+    }
     const d = dragRef.current
     if (d && activeFile) {
       const dx = e.clientX - d.startX
@@ -432,6 +457,15 @@ function ChannelFacet({
     if (cursorRef.current) onCursorChange(pointerToT(e.clientX))
   }
   function onPointerUp(e: React.PointerEvent) {
+    if (winRef.current) {
+      const w = winRef.current
+      winRef.current = null
+      setWinSel(null)
+      const t1 = pointerToT(e.clientX)
+      if (w.moved && t1 !== w.t0) onWindowSelect?.(Math.min(w.t0, t1), Math.max(w.t0, t1))
+      else onCursorChange(t1)
+      return
+    }
     const d = dragRef.current
     dragRef.current = null
     if (d) {
@@ -488,9 +522,13 @@ function ChannelFacet({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={() => {
+          winRef.current = null
+          setWinSel(null)
+        }}
         className={cn(
           "h-40 w-full touch-pan-y select-none sm:touch-none",
-          locked ? "cursor-crosshair" : activeFile ? "cursor-ew-resize" : "cursor-pointer",
+          windowMode || locked ? "cursor-crosshair" : activeFile ? "cursor-ew-resize" : "cursor-pointer",
         )}
       >
         <ResponsiveContainer width="100%" height="100%">
@@ -521,6 +559,19 @@ function ChannelFacet({
             {sync && cursorT != null && (
               <ReferenceLine x={cursorT} stroke="var(--muted-foreground)" strokeOpacity={0.7} strokeDasharray="4 3" />
             )}
+            {winSel && (
+              <ReferenceArea
+                x1={Math.min(winSel[0], winSel[1])}
+                x2={Math.max(winSel[0], winSel[1])}
+                stroke="#ffffff"
+                strokeOpacity={0.85}
+                strokeDasharray="4 3"
+                fill="#ffffff"
+                fillOpacity={0.06}
+              />
+            )}
+            {winSel && <ReferenceLine x={winSel[0]} stroke="#ffffff" strokeWidth={3} strokeOpacity={0.9} />}
+            {winSel && <ReferenceLine x={winSel[1]} stroke="#ffffff" strokeWidth={3} strokeOpacity={0.9} />}
             {lines.map((ln) => (
               <Area
                 key={ln.key}

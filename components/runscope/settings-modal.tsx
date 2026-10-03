@@ -1,12 +1,13 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { ChevronLeft, ChevronRight, Keyboard, LogOut, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, Keyboard, LogOut, RotateCcw, Search, X } from "lucide-react"
 import { DisplayPanel, type DisplaySettings } from "./display-panel"
 import { isDesktopAuth, logout } from "@/lib/auth"
 import { getVinMode, setVinMode } from "@/lib/vin/settings"
 import type { VinMode } from "@/lib/vin/types"
 import {
+  ACTION_GROUPS,
   ACTIONS,
   DEFAULT_BINDINGS,
   loadBindings,
@@ -20,10 +21,12 @@ import {
 } from "@/lib/keybindings"
 import { cn } from "@/lib/utils"
 import { loadFailsafeTable, saveFailsafeTable, type FailsafeTable } from "@/lib/flag-decoders"
+import { CURSOR_SPEEDS, loadCursorSpeed, saveCursorSpeed } from "@/lib/cursor-speed"
 
 function ShortcutEditor() {
   const [bindings, setBindings] = useState<Bindings>(DEFAULT_BINDINGS)
   const [recording, setRecording] = useState<ActionId | null>(null)
+  const [query, setQuery] = useState("")
 
   useEffect(() => setBindings(loadBindings()), [])
 
@@ -59,39 +62,90 @@ function ShortcutEditor() {
     setBindings({ ...DEFAULT_BINDINGS })
   }
 
+  function resetOne(id: ActionId) {
+    setBindings((prev) => {
+      const next = { ...prev }
+      const def = DEFAULT_BINDINGS[id]
+      const other = (Object.keys(next) as ActionId[]).find((x) => x !== id && sameCombo(next[x], def))
+      if (other) next[other] = prev[id]
+      next[id] = def
+      saveBindings(next)
+      return next
+    })
+  }
+
+  const q = query.trim().toLowerCase()
+
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-end">
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Find a shortcut…"
+            className="h-8 w-full rounded-md border border-border bg-card pl-8 pr-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
+          />
+        </div>
         <button
           type="button"
           onClick={reset}
-          className="rounded px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-card px-2.5 text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
         >
-          Reset to defaults
+          <RotateCcw className="size-3" />
+          Reset all
         </button>
       </div>
-      <ul className="flex flex-col divide-y divide-border">
-        {ACTIONS.map((a) => (
-          <li key={a.id} className="flex items-center justify-between gap-3 py-1.5">
-            <span className="text-xs text-foreground">{a.label}</span>
-            <button
-              type="button"
-              onClick={() => setRecording(a.id)}
-              className={cn(
-                "min-w-16 rounded border px-2 py-0.5 text-center font-mono text-[11px] transition-colors",
-                recording === a.id
-                  ? "animate-pulse border-primary bg-primary/15 text-foreground"
-                  : "border-border bg-secondary text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {recording === a.id ? "press keys…" : keyLabel(bindings[a.id])}
-            </button>
-          </li>
-        ))}
-      </ul>
-      <p className="text-[10px] leading-relaxed text-muted-foreground">
-        Click a shortcut, then press the new key or combo (Ctrl / Shift / Alt + key). A combo already in use swaps with it. Esc cancels.
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        Click a key, then press the new key or combo (Ctrl / Shift / Alt + key). If another shortcut already uses it, the two swap. Esc cancels.
       </p>
+      {ACTION_GROUPS.map((g) => {
+        const items = ACTIONS.filter((a) => a.group === g.id && (!q || a.label.toLowerCase().includes(q) || keyLabel(bindings[a.id]).toLowerCase().includes(q)))
+        if (!items.length) return null
+        return (
+          <section key={g.id} className="rounded-lg border border-border bg-card/40 px-3 py-2">
+            <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-foreground">{g.title}</h4>
+            <ul className="flex flex-col">
+              {items.map((a) => {
+                const changed = !sameCombo(bindings[a.id], DEFAULT_BINDINGS[a.id])
+                return (
+                  <li key={a.id} className="flex items-center justify-between gap-2 border-t border-border/50 py-1.5 first:border-t-0">
+                    <span className="min-w-0 text-xs text-foreground">{a.label}</span>
+                    <span className="flex shrink-0 items-center gap-1">
+                      {changed && (
+                        <button
+                          type="button"
+                          onClick={() => resetOne(a.id)}
+                          title={`Back to ${keyLabel(DEFAULT_BINDINGS[a.id])}`}
+                          aria-label="Reset this shortcut"
+                          className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
+                        >
+                          <RotateCcw className="size-3" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setRecording(a.id)}
+                        className={cn(
+                          "min-w-20 rounded-md border border-b-2 px-2 py-0.5 text-center font-mono text-[11px] transition-colors",
+                          recording === a.id
+                            ? "animate-pulse border-primary bg-primary/15 text-foreground"
+                            : changed
+                              ? "border-primary/50 bg-primary/10 text-foreground hover:border-primary"
+                              : "border-border bg-secondary text-foreground hover:border-ring",
+                        )}
+                      >
+                        {recording === a.id ? "press keys…" : keyLabel(bindings[a.id])}
+                      </button>
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
+        )
+      })}
     </div>
   )
 }
@@ -102,24 +156,28 @@ export function SettingsModal({
   onChange,
   onReset,
   onClose,
+  initialPage = "main",
 }: {
   open: boolean
   settings: DisplaySettings
   onChange: (next: DisplaySettings) => void
   onReset: () => void
   onClose: () => void
+  initialPage?: "main" | "keys"
 }) {
-  const [page, setPage] = useState<"main" | "keys">("main")
+  const [page, setPage] = useState<"main" | "keys">(initialPage)
+  const [cursorSpeed, setCursorSpeedState] = useState("slow")
   const [vinMode, setVinModeState] = useState<VinMode>("online")
   const [failsafeTable, setFailsafeTable] = useState<FailsafeTable>("phase6")
   // Always return to the main page each time the modal opens; sync VIN mode.
   useEffect(() => {
     if (open) {
-      setPage("main")
+      setPage(initialPage)
+      setCursorSpeedState(loadCursorSpeed())
       setVinModeState(getVinMode())
       setFailsafeTable(loadFailsafeTable())
     }
-  }, [open])
+  }, [open, initialPage])
 
   if (!open) return null
   return (
@@ -194,6 +252,32 @@ export function SettingsModal({
               </div>
               <p className="text-[10px] leading-relaxed text-muted-foreground">
                 Online uses the public NHTSA database; Local only decodes offline from the VIN; Off disables it.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 border-t border-border pt-4">
+              <span className="text-xs font-medium text-foreground">Cursor glide speed</span>
+              <div className="flex rounded-lg border border-border bg-secondary/40 p-0.5">
+                {CURSOR_SPEEDS.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => {
+                      saveCursorSpeed(s.id)
+                      setCursorSpeedState(s.id)
+                    }}
+                    className={cn(
+                      "flex-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+                      cursorSpeed === s.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] leading-relaxed text-muted-foreground">
+                How fast the value cursor moves while you hold the arrow key: it crosses the visible graph in{" "}
+                {CURSOR_SPEEDS.find((s) => s.id === cursorSpeed)?.secondsPerScreen ?? 20} seconds. A tap always moves one sample. Zoom in to go slower through the data.
               </p>
             </div>
 

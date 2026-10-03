@@ -10,12 +10,15 @@ export function LicenseBadge({
   firstLoginAt,
   expiresAt,
   isOwner,
+  onClick,
   compact = false,
 }: {
   email?: string | null
   firstLoginAt?: number | null
   expiresAt?: number | null
   isOwner?: boolean
+  /** owner only: opens the Licenses panel */
+  onClick?: () => void
   compact?: boolean
 }) {
   const [now, setNow] = useState(Date.now)
@@ -46,16 +49,27 @@ export function LicenseBadge({
           ? "Expired"
           : license.remainingLabel
 
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium",
-        tone,
-      )}
-      title={`${license.label}. Expiration: ${expires}`}
-    >
+  const body = (
+    <>
       <ShieldCheck className="size-3.5" />
       <span>{compact ? compactLabel : `${license.label} - ${license.remainingLabel}`}</span>
+    </>
+  )
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn("inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium transition-opacity hover:opacity-80", tone)}
+        title={`${license.label}. Click to manage every account's license.`}
+      >
+        {body}
+      </button>
+    )
+  }
+  return (
+    <span className={cn("inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium", tone)} title={`${license.label}. Expiration: ${expires}`}>
+      {body}
     </span>
   )
 }

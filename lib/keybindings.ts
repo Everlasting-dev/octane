@@ -48,47 +48,74 @@ export type ActionId =
 
 export type ActionContext = "plot" | "matrix" | "channels" | "compare" | "time" | "global"
 
-export const ACTIONS: { id: ActionId; label: string; context: ActionContext }[] = [
-  { id: "focusNext", label: "Select next line", context: "plot" },
-  { id: "focusPrev", label: "Select previous line", context: "plot" },
-  { id: "selectLine", label: "Add / remove selected line from the group", context: "plot" },
-  { id: "lineAdjust", label: "Lines panel (colour / scale / weight)", context: "plot" },
-  { id: "lineScaleUp", label: "Scale selected line up", context: "plot" },
-  { id: "lineScaleDown", label: "Scale selected line down", context: "plot" },
-  { id: "lineShiftUp", label: "Move selected line up", context: "plot" },
-  { id: "lineShiftDown", label: "Move selected line down", context: "plot" },
-  { id: "lineWidthUp", label: "Thicker selected line", context: "plot" },
-  { id: "lineWidthDown", label: "Thinner selected line", context: "plot" },
-  { id: "lineReset", label: "Reset selected line", context: "plot" },
-  { id: "movePlot", label: "Send selected line to the other plot", context: "plot" },
-  { id: "peakToggle", label: "Toggle peak markers", context: "plot" },
-  { id: "fullscreen", label: "Fullscreen the plot", context: "plot" },
-  { id: "cursorLeft", label: "Move value cursor left", context: "time" },
-  { id: "cursorRight", label: "Move value cursor right", context: "time" },
-  { id: "panLeft", label: "Shift time window left", context: "time" },
-  { id: "panRight", label: "Shift time window right", context: "time" },
-  { id: "zoomIn", label: "Zoom time window in", context: "time" },
-  { id: "zoomOut", label: "Zoom time window out", context: "time" },
-  { id: "windowMode", label: "Window mode (drag a plot to set the time window)", context: "time" },
-  { id: "editChannels", label: "Edit templates", context: "channels" },
-  { id: "heightCycle", label: "Cycle chart height", context: "matrix" },
-  { id: "lockCompare", label: "Lock alignment", context: "compare" },
-  { id: "openLog", label: "Open log", context: "global" },
-  { id: "searchChannels", label: "Search channels", context: "global" },
-  { id: "quickSearch", label: "Quick search (Matrix & Plot)", context: "global" },
-  { id: "previousFile", label: "Previous loaded / reference file", context: "global" },
-  { id: "cycleFile", label: "Next loaded / reference file", context: "global" },
-  { id: "togglePick", label: "Toggle readout picking", context: "global" },
-  { id: "toggleGrid", label: "Toggle grid lines", context: "global" },
-  { id: "sync", label: "Toggle sync", context: "global" },
-  { id: "annotate", label: "Toggle annotate", context: "global" },
-  { id: "reset", label: "Reset view", context: "global" },
-  { id: "scrollTop", label: "Scroll to top", context: "global" },
-  { id: "shortcutsHelp", label: "Keyboard shortcuts cheat-sheet", context: "global" },
-  { id: "viewMatrix", label: "View: Signal Matrix", context: "global" },
-  { id: "viewPlot", label: "View: Analysis Plot", context: "global" },
-  { id: "viewChannels", label: "View: Channels", context: "global" },
-  { id: "viewCompare", label: "View: Compare", context: "global" },
+/** Task-based groups used by the cheat-sheet and the key-binding editor. */
+export type ActionGroup = "time" | "lines" | "views" | "files" | "tools"
+
+export const ACTION_GROUPS: { id: ActionGroup; title: string; hint: string }[] = [
+  { id: "time", title: "Move through time", hint: "Cursor, time window and zoom" },
+  { id: "lines", title: "Lines", hint: "Analysis Plot and Channels" },
+  { id: "views", title: "Views", hint: "Switch screens" },
+  { id: "files", title: "Files & search", hint: "Open, switch and find" },
+  { id: "tools", title: "Display & tools", hint: "Toggles and helpers" },
+]
+
+export const ACTIONS: { id: ActionId; label: string; context: ActionContext; group: ActionGroup }[] = [
+  { id: "cursorLeft", label: "Value cursor left (hold to glide)", context: "time", group: "time" },
+  { id: "cursorRight", label: "Value cursor right (hold to glide)", context: "time", group: "time" },
+  { id: "panLeft", label: "Shift time window left", context: "time", group: "time" },
+  { id: "panRight", label: "Shift time window right", context: "time", group: "time" },
+  { id: "zoomIn", label: "Zoom in", context: "time", group: "time" },
+  { id: "zoomOut", label: "Zoom out", context: "time", group: "time" },
+  { id: "windowMode", label: "Window mode: drag a graph to pick a time range", context: "time", group: "time" },
+  { id: "reset", label: "Reset view", context: "global", group: "time" },
+
+  { id: "focusPrev", label: "Previous line", context: "plot", group: "lines" },
+  { id: "focusNext", label: "Next line", context: "plot", group: "lines" },
+  { id: "lineAdjust", label: "Lines panel (colour, scale, weight)", context: "plot", group: "lines" },
+  { id: "lineScaleUp", label: "Scale line up", context: "plot", group: "lines" },
+  { id: "lineScaleDown", label: "Scale line down", context: "plot", group: "lines" },
+  { id: "lineShiftUp", label: "Move line up", context: "plot", group: "lines" },
+  { id: "lineShiftDown", label: "Move line down", context: "plot", group: "lines" },
+  { id: "lineWidthUp", label: "Thicker line", context: "plot", group: "lines" },
+  { id: "lineWidthDown", label: "Thinner line", context: "plot", group: "lines" },
+  { id: "lineReset", label: "Reset line", context: "plot", group: "lines" },
+  { id: "selectLine", label: "Add line to the group selection", context: "plot", group: "lines" },
+  { id: "movePlot", label: "Send line to the other plot", context: "plot", group: "lines" },
+  { id: "peakToggle", label: "Mark peaks", context: "plot", group: "lines" },
+  { id: "fullscreen", label: "Fullscreen plot", context: "plot", group: "lines" },
+
+  { id: "viewMatrix", label: "Signal Matrix", context: "global", group: "views" },
+  { id: "viewPlot", label: "Analysis Plot", context: "global", group: "views" },
+  { id: "viewChannels", label: "Channels", context: "global", group: "views" },
+  { id: "viewCompare", label: "Compare", context: "global", group: "views" },
+
+  { id: "openLog", label: "Open a log", context: "global", group: "files" },
+  { id: "previousFile", label: "Previous file", context: "global", group: "files" },
+  { id: "cycleFile", label: "Next file", context: "global", group: "files" },
+  { id: "quickSearch", label: "Quick search a graph", context: "global", group: "files" },
+  { id: "searchChannels", label: "Search the channel list", context: "global", group: "files" },
+
+  { id: "sync", label: "Sync cursors", context: "global", group: "tools" },
+  { id: "annotate", label: "Annotate", context: "global", group: "tools" },
+  { id: "togglePick", label: "Pick lines from the readout", context: "global", group: "tools" },
+  { id: "toggleGrid", label: "Grid lines", context: "global", group: "tools" },
+  { id: "heightCycle", label: "Graph height (Signal Matrix)", context: "matrix", group: "tools" },
+  { id: "editChannels", label: "Edit templates (Channels)", context: "channels", group: "tools" },
+  { id: "lockCompare", label: "Lock alignment (Compare)", context: "compare", group: "tools" },
+  { id: "scrollTop", label: "Scroll to top", context: "global", group: "tools" },
+  { id: "shortcutsHelp", label: "This shortcuts list", context: "global", group: "tools" },
+]
+
+/** Actions shown together on one cheat-sheet row ("A / B"). */
+export const ACTION_PAIRS: { a: ActionId; b: ActionId; label: string }[] = [
+  { a: "cursorLeft", b: "cursorRight", label: "Move the value cursor (hold to glide)" },
+  { a: "panLeft", b: "panRight", label: "Shift the time window" },
+  { a: "zoomIn", b: "zoomOut", label: "Zoom in / out" },
+  { a: "focusPrev", b: "focusNext", label: "Previous / next line" },
+  { a: "lineScaleUp", b: "lineScaleDown", label: "Scale line up / down" },
+  { a: "lineShiftUp", b: "lineShiftDown", label: "Move line up / down" },
+  { a: "lineWidthUp", b: "lineWidthDown", label: "Thicker / thinner line" },
+  { a: "previousFile", b: "cycleFile", label: "Previous / next file" },
 ]
 
 export interface Combo {

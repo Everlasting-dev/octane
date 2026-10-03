@@ -12,7 +12,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import { cn } from "@/lib/utils"
+import { cn, releaseFocus } from "@/lib/utils"
 import type { Signal } from "@/lib/telemetry"
 import type { DisplaySettings } from "./display-panel"
 import type { DiffStats } from "@/lib/compare"
@@ -291,6 +291,7 @@ function SignalChartImpl({
   const onChartUp = useCallback(() => handlersRef.current.endDrag(), [])
 
   function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+    releaseFocus() // arrows / shortcuts go to the graph, not a dropdown
     if (windowMode && !annotateMode) {
       if (!chartRef.current) return
       if (event.pointerType === "mouse" && event.button !== 0) return

@@ -28,7 +28,7 @@ import {
 } from "lucide-react"
 import { Area, AreaChart, CartesianGrid, ReferenceArea, ReferenceDot, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from "recharts"
 import { lttb } from "@/lib/downsample"
-import { cn } from "@/lib/utils"
+import { cn, releaseFocus } from "@/lib/utils"
 import { assignLineColors } from "@/lib/palette"
 import {
   GAIN_MAX,
@@ -864,7 +864,10 @@ function CombinedChartImpl({
             <select
               aria-label="Apply channel template"
               value=""
-              onChange={(event) => applyTemplateById(event.target.value)}
+              onChange={(event) => {
+                applyTemplateById(event.target.value)
+                event.currentTarget.blur() // arrows go back to the plot
+              }}
               className="octane-template-select h-8 min-w-0 max-w-[10rem] rounded-md border border-border bg-card px-2 text-[11px] text-foreground outline-none transition-colors hover:bg-secondary focus:border-ring focus:ring-2 focus:ring-ring/30 max-[420px]:order-10 max-[420px]:w-full max-[420px]:max-w-none"
             >
               <option value="" disabled>
@@ -1056,7 +1059,7 @@ function CombinedChartImpl({
                 shownAnnotations={shownAnnotations}
                 heightClass={cn(paneHeight(paneGroups.length), p > 0 && "border-t border-border")}
                 readoutMode={presetMode || mobilePlot || !sidePanelOpen ? "ghost" : groupMode ? "pane" : "none"}
-                readoutLimit={workbench ? 5 : presetMode || mobilePlot || !sidePanelOpen ? 7 : 5}
+                readoutLimit={pane.series.length}
                 readoutInteractive={!mobilePlot && readoutPicking}
                 hoverKey={hoverKey}
                 onCursorChange={onCursorChange}
@@ -1762,6 +1765,7 @@ function AnalysisPane({
 
   function onPointerDown(e: React.PointerEvent) {
     if (!wrapRef.current) return
+    releaseFocus()
     if (e.shiftKey) {
       e.preventDefault()
       offsetDragRef.current = { startY: e.clientY }
@@ -1909,6 +1913,11 @@ function AnalysisPane({
     })
   }, [colorOf, cursorT, paneSeries, sync, transforms, rangeOf]) // eslint-disable-line react-hooks/exhaustive-deps
   const readoutCanPick = readoutInteractive
+  const readoutOnRight = (() => {
+    if (cursorT == null || box.w <= 0 || domain[1] <= domain[0]) return false
+    const frac = (cursorT - domain[0]) / (domain[1] - domain[0])
+    return frac >= 0 && frac < 0.45
+  })()
 
   // The plot only re-renders for data/style/range changes; moving the cursor
   // (arrow keys, scrubbing) only redraws the light overlay below it.
@@ -2073,17 +2082,20 @@ function AnalysisPane({
               ? cn(readoutCanPick ? "pointer-events-auto" : "pointer-events-none", "border-transparent bg-transparent shadow-none backdrop-blur-0")
               : "pointer-events-auto",
           )}
-          style={
-            readoutMode === "ghost"
+          style={{
+            ...(readoutMode === "ghost"
               ? {
-                  textShadow: "0 1px 2px #000, 0 0 5px #000",
+                  textShadow: "0 1px 2px #000, 0 0 4px #000",
                   background: "transparent",
                   borderColor: "transparent",
                   boxShadow: "none",
                   backdropFilter: "none",
                 }
-              : undefined
-          }
+              : {}),
+            // keep the readout on the opposite side of the cursor
+            // (moved down a little on the right so it clears the axis-channel label)
+            ...(readoutOnRight ? { left: "auto", right: 12, top: axisLabel ? 26 : 12 } : {}),
+          }}
         >
           <div className={cn("mb-1 flex items-center justify-between gap-3 border-b pb-1", readoutMode === "ghost" ? "border-transparent" : "border-border/70")}>
             <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{paneTitle}</span>
@@ -2092,7 +2104,7 @@ function AnalysisPane({
               {timeUnit}
             </span>
           </div>
-          <div className="flex max-h-28 flex-col gap-0.5 overflow-hidden">
+          <div className="flex flex-col gap-px">
             {readoutRows.map((row) => (
               <button
                 key={row.label}
@@ -2116,6 +2128,9 @@ function AnalysisPane({
                 }}
                 className={cn(
                   "grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 rounded px-1 py-0.5 text-left font-mono text-[11px] leading-tight",
+                  // ghost readout: a faint dark chip per row keeps the text readable
+                  // over busy lines while the plot still shows through
+                  readoutMode === "ghost" && "bg-black/45",
                   readoutCanPick && "cursor-pointer",
                   readoutCanPick && readoutMode !== "ghost" && "hover:bg-secondary/70",
                   !readoutCanPick && "cursor-default disabled:opacity-100",
