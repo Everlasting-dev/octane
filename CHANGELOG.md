@@ -8,6 +8,26 @@ published as GitHub releases or tags, and the only public release is the
 current `0.9.x` line. Their entries are kept below for history and are marked
 accordingly. Version numbers therefore decrease part-way down this file.
 
+## v0.9.8 - 2026-10-03
+
+### Added
+
+- Compare: a bar pinned to the top while you scroll lists every file in the comparison, each with a close button, plus quick search (`/` or the Quick search button) to jump straight to one graph. Overlay areas has close buttons too.
+- Settings -> Cursor glide speed: Crawl, Slow (default), Medium or Fast.
+- A banner shows while Window mode is on (W toggles, Esc cancels); it switches off after one selection.
+
+### Changed
+
+- The value cursor glides smoothly at 60 fps while an arrow key is held (no more sticking and jumping on big logs); a tap moves exactly one sample. Graphs no longer redraw on every cursor step.
+- The keyboard shortcuts list and the key-binding editor are grouped by task, with search, paired keys on one row and a reset for each changed shortcut.
+- The plot readout lists every line (not just 6), on faint dark chips that keep the plot visible, and moves to the side away from the cursor.
+- Clicking a graph hands the keyboard back to it, so arrow keys work right after using a dropdown such as Template.
+- The Licenses panel opens from the owner badge; the separate button is gone.
+
+### Fixed
+
+- Window mode works in Compare -> Overlay areas, with alignment locked or unlocked.
+
 ## v0.9.7 - 2026-10-03
 
 ### Added (icon, license, install menu)

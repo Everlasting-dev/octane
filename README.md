@@ -2,7 +2,7 @@
 
 Octane is a development-stage ECU telemetry log viewer for inspecting CSV/TXT log captures on desktop and mobile.
 
-Current development version: `0.9.7`
+Current development version: `0.9.8`
 
 ## Mobile Web Preview
 
