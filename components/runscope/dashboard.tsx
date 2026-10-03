@@ -1225,9 +1225,10 @@ export const Dashboard = forwardRef<
     { ...bindings.panRight, description: "Shift time window right", handler: () => panBy(0.2) },
     {
       ...bindings.quickSearch,
-      description: "Quick search (Signal Matrix)",
+      description: "Quick search (Signal Matrix / Compare)",
       handler: () => {
-        if (comparing || view !== "matrix") return
+        if (view !== "matrix" && !comparing) return
+        if (comparing) setCompareMode("matrix")
         setQuickOpen(true)
         setTimeout(() => quickRef.current?.focus(), 0)
       },
@@ -1514,7 +1515,11 @@ export const Dashboard = forwardRef<
                   </div>
                 )}
 
-                {view !== "channels" && <div className="analysis-heading mt-5 mb-3 flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+                {view !== "channels" && <div className={cn(
+                  "analysis-heading mt-5 mb-3 flex flex-wrap items-center justify-between gap-2 sm:gap-3",
+                  // Compare: keep search + files reachable while scrolling through the graphs
+                  comparing && "sticky -top-4 z-20 -mx-3 border-b border-border bg-background/95 px-3 py-2 backdrop-blur sm:-top-5 sm:-mx-5 sm:px-5",
+                )}>
                   <div className="flex shrink-0 items-center gap-3">
                     <h2 className="text-sm font-semibold text-foreground">
                       {view === "plot" ? "Analysis Plot" : comparing ? "Comparison" : "Signal Matrix"}
@@ -1539,7 +1544,7 @@ export const Dashboard = forwardRef<
                       </div>
                     )}
                   </div>
-                  {(!comparing || compareMode === "matrix") && view !== "plot" && (
+                  {view !== "plot" && (
                     <div className="hidden flex-1 items-center justify-end gap-2 lg:flex">
                       {quickOpen ? (
                         <div className="relative w-full max-w-xs">
@@ -1548,7 +1553,10 @@ export const Dashboard = forwardRef<
                             ref={quickRef}
                             autoFocus
                             value={matrixQuery}
-                            onChange={(e) => setMatrixQuery(e.target.value)}
+                            onChange={(e) => {
+                              if (comparing) setCompareMode("matrix")
+                              setMatrixQuery(e.target.value)
+                            }}
                             onKeyDown={(e) => {
                               if (e.key === "Enter" || e.key === "Escape") {
                                 e.preventDefault()
@@ -1574,8 +1582,11 @@ export const Dashboard = forwardRef<
                       ) : (
                         <button
                           type="button"
-                          onClick={() => setQuickOpen(true)}
-                          title="Quick search a plot"
+                          onClick={() => {
+                            if (comparing) setCompareMode("matrix")
+                            setQuickOpen(true)
+                          }}
+                          title="Quick search a plot (/)"
                           className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                         >
                           <Search className="size-3.5" />
@@ -1589,6 +1600,29 @@ export const Dashboard = forwardRef<
                     {timeUnit} – {domain[1].toFixed(1)}
                     {timeUnit}
                   </span>
+                  {comparing && (
+                    <div className="flex w-full flex-wrap items-center gap-1.5" aria-label="Files in this comparison">
+                      {logs.map((l, i) => (
+                        <span
+                          key={`${l.fileName}-${i}`}
+                          className="inline-flex max-w-[22rem] items-center gap-1.5 rounded-md border border-border bg-card py-0.5 pl-2 pr-0.5 text-xs text-foreground"
+                          title={l.fileName}
+                        >
+                          <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: FILE_COLORS[i % FILE_COLORS.length] }} />
+                          <span className="truncate">{l.fileName.replace(/\.[^.]+$/, "")}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeLog(i)}
+                            aria-label={`Close ${l.fileName}`}
+                            title="Close this file"
+                            className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
+                          >
+                            <X className="size-3.5" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>}
 
                 {comparing && compareMode === "areas" ? (
@@ -1603,6 +1637,10 @@ export const Dashboard = forwardRef<
                     cursorT={sync ? cursorT : null}
                     templates={templates}
                     onSetActiveFile={setActiveCompareFile}
+                    onRemoveFile={(name) => {
+                      const idx = logs.findIndex((l) => l.fileName === name)
+                      if (idx >= 0) removeLog(idx)
+                    }}
                     onSetOffset={setFileOffset}
                     onResetOffsets={() => setFileOffsets({})}
                     onSetAreaChannels={setAreaChannels}

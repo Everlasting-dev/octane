@@ -30,6 +30,8 @@ export interface CompareViewProps {
   cursorT: number | null
   templates: Template[]
   onSetActiveFile: (name: string) => void
+  /** close this file (removes it from the loaded logs) */
+  onRemoveFile?: (name: string) => void
   onSetOffset: (name: string, offset: number) => void
   onResetOffsets: () => void
   onSetAreaChannels: (areaIdx: number, channels: string[]) => void
@@ -62,7 +64,7 @@ function shift(data: SignalSample[], off: number): SignalSample[] {
 }
 
 export function CompareView(props: CompareViewProps) {
-  const { logs, offsets, activeFile, templates, locked, onSetActiveFile, onSetOffset, onResetOffsets, onApplyTemplateAll, onToggleLock } = props
+  const { logs, offsets, activeFile, templates, locked, onSetActiveFile, onSetOffset, onResetOffsets, onApplyTemplateAll, onToggleLock, onRemoveFile } = props
   const files = logs.slice(0, MAX_FILES)
 
   const allLabels = useMemo(() => {
@@ -116,6 +118,17 @@ export function CompareView(props: CompareViewProps) {
               >
                 +
               </button>
+              {onRemoveFile && (
+                <button
+                  type="button"
+                  onClick={() => onRemoveFile(l.fileName)}
+                  className="inline-flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+                  aria-label={`Close ${l.fileName}`}
+                  title="Close this file"
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
             </div>
           )
         })}
