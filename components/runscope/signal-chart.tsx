@@ -1,13 +1,12 @@
 "use client"
 
-import { memo, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react"
 import { ChevronDown, Crosshair, MapPin } from "lucide-react"
 import {
   Area,
   AreaChart,
   CartesianGrid,
   ReferenceArea,
-  ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
   XAxis,
@@ -36,6 +35,13 @@ const INTRINSIC: Record<DisplaySettings["height"], number> = { mini: 170, compac
 export const CHART_INTRINSIC_HEIGHT = INTRINSIC
 /** Minimum horizontal drag (px) before a window-mode drag counts. */
 const WINDOW_DRAG_PX = 6
+// Plot-area geometry, matching the AreaChart below: wrapper px-2 (8px),
+// margins top 8 / right 16 / left 4 / bottom 4, x-axis band 30px.
+const PAD_X = 8
+const M_TOP = 8
+const M_RIGHT = 16
+const M_LEFT = 4
+const AXIS_BAND = 30 + 4
 
 export interface ChartSeries {
   id: string
@@ -152,6 +158,44 @@ function SignalChartImpl({
   const effectiveCursorT = sync ? cursorT : localCursorT
   const yAxisWidth = unitText(unit) ? 58 : 44
 
+  // Explicit y range, rounded out to clean steps (like Recharts' "auto"), so the
+  // cursor overlay can place its dot without asking Recharts; the chart itself
+  // never re-renders for cursor moves.
+  const { yDomain, yTicks } = useMemo(() => {
+    let lo = Infinity
+    let hi = -Infinity
+    for (const s of series) {
+      if (Number.isFinite(s.signal.min)) lo = Math.min(lo, s.signal.min)
+      if (Number.isFinite(s.signal.max)) hi = Math.max(hi, s.signal.max)
+    }
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return { yDomain: [0, 1] as [number, number], yTicks: [0, 0.5, 1] }
+    if (hi === lo) {
+      lo -= 1
+      hi += 1
+    }
+    const raw = (hi - lo) / 4
+    const pow = Math.pow(10, Math.floor(Math.log10(raw)))
+    const m = raw / pow
+    const step = (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * pow
+    const a = Math.floor(lo / step) * step
+    const b = Math.ceil(hi / step) * step
+    const ticks: number[] = []
+    for (let v = a; v <= b + step / 2; v += step) ticks.push(+v.toPrecision(12))
+    return { yDomain: [a, b] as [number, number], yTicks: ticks }
+  }, [series])
+
+  const [box, setBox] = useState({ w: 0, h: 0 })
+  useEffect(() => {
+    const el = chartRef.current
+    if (!el || typeof ResizeObserver === "undefined") return
+    const ro = new ResizeObserver(() => {
+      const r = el.getBoundingClientRect()
+      setBox((b) => (Math.abs(b.w - r.width) < 0.5 && Math.abs(b.h - r.height) < 0.5 ? b : { w: r.width, h: r.height }))
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [collapsed])
+
   const shownAnnotations = useMemo(
     () => annotations.filter((a) => !a.channel || a.channel === label),
     [annotations, label],
@@ -207,8 +251,8 @@ function SignalChartImpl({
   function pointerToT(clientX: number) {
     const rect = chartRef.current?.getBoundingClientRect()
     if (!rect) return domain[0]
-    const left = 8 + yAxisWidth + 4
-    const right = 8 + 16
+    const left = PAD_X + yAxisWidth + M_LEFT
+    const right = PAD_X + M_RIGHT
     const width = Math.max(1, rect.width - left - right)
     return +clamp(domain[0] + ((clientX - rect.left - left) / width) * (domain[1] - domain[0]), domain[0], domain[1]).toFixed(3)
   }
@@ -238,6 +282,14 @@ function SignalChartImpl({
   function endDrag() {
     draggingRef.current = false
   }
+  const handlersRef = useRef({ handleClick, handleMouseDown, handleMouseMove, endDrag })
+  handlersRef.current = { handleClick, handleMouseDown, handleMouseMove, endDrag }
+  type ChartState = { activeLabel?: string | number } | null
+  const onChartClick = useCallback((s: ChartState) => handlersRef.current.handleClick(s), [])
+  const onChartDown = useCallback((s: ChartState) => handlersRef.current.handleMouseDown(s), [])
+  const onChartMove = useCallback((s: ChartState) => handlersRef.current.handleMouseMove(s), [])
+  const onChartUp = useCallback(() => handlersRef.current.endDrag(), [])
+
   function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
     if (windowMode && !annotateMode) {
       if (!chartRef.current) return
@@ -309,6 +361,119 @@ function SignalChartImpl({
           containIntrinsicSize: `auto ${INTRINSIC[display.height] + (isCompare ? 28 : 0)}px`,
         }
   ) as CSSProperties | undefined
+
+  // The chart only re-renders when its data, range or styling change — not when
+  // the cursor moves (arrow keys / scrubbing redraw just the overlay below).
+  const chartEl = useMemo(
+    () => (
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart
+                data={rows}
+                margin={{ top: 8, right: 16, left: 4, bottom: 4 }}
+                onClick={onChartClick}
+                onMouseDown={onChartDown}
+                onMouseMove={onChartMove}
+                onMouseUp={onChartUp}
+                onMouseLeave={onChartUp}
+              >
+                {display.showGrid && (
+                  <CartesianGrid stroke="var(--muted-foreground)" strokeOpacity={0.18} strokeDasharray="2 4" vertical horizontal />
+                )}
+                <XAxis
+                  dataKey="t"
+                  type="number"
+                  domain={domain}
+                  allowDataOverflow
+                  tickLine={false}
+                  axisLine={{ stroke: "var(--border)" }}
+                  tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
+                  tickFormatter={(v) => `${v}`}
+                  minTickGap={40}
+                  unit={timeUnit}
+                />
+                <YAxis
+                  width={yAxisWidth}
+                  tickLine={false}
+                  axisLine={false}
+                  domain={yDomain}
+                  ticks={yTicks}
+                  tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
+                  tickFormatter={(v) => {
+                    const value = fmt(Number(v), decimals <= 1 ? 0 : 1)
+                    const suffix = unitText(unit)
+                    return suffix ? `${value}${suffix}` : value
+                  }}
+                />
+                {shownAnnotations.map((a) => (
+                  <ReferenceLine
+                    key={a.id}
+                    x={a.t}
+                    stroke={colorForType(a.type)}
+                    strokeWidth={1.5}
+                    label={{ value: a.type, position: "insideTopLeft", fontSize: 10, fill: colorForType(a.type) }}
+                  />
+                ))}
+                {winSel && (
+                  <ReferenceArea
+                    x1={Math.min(winSel[0], winSel[1])}
+                    x2={Math.max(winSel[0], winSel[1])}
+                    stroke="#ffffff"
+                    strokeOpacity={0.85}
+                    strokeDasharray="4 3"
+                    fill="#ffffff"
+                    fillOpacity={0.06}
+                  />
+                )}
+                {winSel && <ReferenceLine x={winSel[0]} stroke="#ffffff" strokeWidth={3} strokeOpacity={0.9} />}
+                {winSel && <ReferenceLine x={winSel[1]} stroke="#ffffff" strokeWidth={3} strokeOpacity={0.9} />}
+                {keys.map((key, i) => (
+                  <Area
+                    key={key}
+                    type={display.curve}
+                    dataKey={key}
+                    stroke={series[i].color}
+                    strokeWidth={display.lineWidth}
+                    fill="none"
+                    fillOpacity={0}
+                    dot={false}
+                    activeDot={false}
+                    isAnimationActive={false}
+                    connectNulls
+                  />
+                ))}
+              </AreaChart>
+            </ResponsiveContainer>
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handlers are stable ref wrappers
+    [rows, keys, series, display, domain, yDomain, yTicks, yAxisWidth, decimals, unit, timeUnit, shownAnnotations, winSel],
+  )
+
+  const plotW = Math.max(0, box.w - PAD_X * 2 - M_LEFT - M_RIGHT - yAxisWidth)
+  const plotH = Math.max(0, box.h - M_TOP - AXIS_BAND)
+  const span = domain[1] - domain[0]
+  const cursorX =
+    effectiveCursorT != null && span > 0 && plotW > 0 && effectiveCursorT >= domain[0] && effectiveCursorT <= domain[1]
+      ? PAD_X + M_LEFT + yAxisWidth + ((effectiveCursorT - domain[0]) / span) * plotW
+      : null
+  const cursorY =
+    cursorX != null && cursorValue?.value != null && yDomain[1] > yDomain[0]
+      ? M_TOP + (1 - (cursorValue.value - yDomain[0]) / (yDomain[1] - yDomain[0])) * plotH
+      : null
+  const cursorOverlay =
+    cursorX == null ? null : (
+      <div className="pointer-events-none absolute inset-0" aria-hidden>
+        <div
+          className="absolute w-0 border-l border-dashed"
+          style={{ left: cursorX, top: M_TOP, height: plotH, borderColor: primary?.color, opacity: sync ? 0.75 : 0.45 }}
+        />
+        {cursorY != null && cursorY >= M_TOP - 1 && cursorY <= M_TOP + plotH + 1 && (
+          <div
+            className="absolute size-2 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-background"
+            style={{ left: cursorX, top: cursorY, backgroundColor: primary?.color }}
+          />
+        )}
+      </div>
+    )
 
   return (
     <section
@@ -394,101 +559,13 @@ function SignalChartImpl({
             onPointerCancel={handlePointerCancel}
             onDoubleClick={windowMode ? () => onWindowReset?.() : undefined}
             className={cn(
-              "w-full touch-pan-y select-none px-2",
+              "relative w-full touch-pan-y select-none px-2",
               HEIGHT_CLASS[display.height],
               annotateMode || windowMode ? "cursor-crosshair" : "cursor-ew-resize",
             )}
           >
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart
-                data={rows}
-                margin={{ top: 8, right: 16, left: 4, bottom: 4 }}
-                onClick={handleClick}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={endDrag}
-                onMouseLeave={endDrag}
-              >
-                {display.showGrid && (
-                  <CartesianGrid stroke="var(--muted-foreground)" strokeOpacity={0.18} strokeDasharray="2 4" vertical horizontal />
-                )}
-                <XAxis
-                  dataKey="t"
-                  type="number"
-                  domain={domain}
-                  allowDataOverflow
-                  tickLine={false}
-                  axisLine={{ stroke: "var(--border)" }}
-                  tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
-                  tickFormatter={(v) => `${v}`}
-                  minTickGap={40}
-                  unit={timeUnit}
-                />
-                <YAxis
-                  width={yAxisWidth}
-                  tickLine={false}
-                  axisLine={false}
-                  domain={["auto", "auto"]}
-                  tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
-                  tickFormatter={(v) => {
-                    const value = fmt(Number(v), decimals <= 1 ? 0 : 1)
-                    const suffix = unitText(unit)
-                    return suffix ? `${value}${suffix}` : value
-                  }}
-                />
-                {effectiveCursorT != null && (
-                  <ReferenceLine x={effectiveCursorT} stroke={primary?.color} strokeOpacity={sync ? 0.7 : 0.45} strokeDasharray="4 3" />
-                )}
-                {cursorValue && cursorValue.value != null && (
-                  <ReferenceDot
-                    x={cursorValue.t}
-                    y={cursorValue.value}
-                    r={3}
-                    fill={primary?.color}
-                    stroke="var(--background)"
-                    strokeWidth={2}
-                    isFront
-                  />
-                )}
-                {shownAnnotations.map((a) => (
-                  <ReferenceLine
-                    key={a.id}
-                    x={a.t}
-                    stroke={colorForType(a.type)}
-                    strokeWidth={1.5}
-                    label={{ value: a.type, position: "insideTopLeft", fontSize: 10, fill: colorForType(a.type) }}
-                  />
-                ))}
-                {winSel && (
-                  <ReferenceArea
-                    x1={Math.min(winSel[0], winSel[1])}
-                    x2={Math.max(winSel[0], winSel[1])}
-                    stroke="#ffffff"
-                    strokeOpacity={0.85}
-                    strokeDasharray="4 3"
-                    fill="#ffffff"
-                    fillOpacity={0.06}
-                  />
-                )}
-                {winSel && <ReferenceLine x={winSel[0]} stroke="#ffffff" strokeWidth={3} strokeOpacity={0.9} />}
-                {winSel && <ReferenceLine x={winSel[1]} stroke="#ffffff" strokeWidth={3} strokeOpacity={0.9} />}
-                {keys.map((key, i) => (
-                  <Area
-                    key={key}
-                    type={display.curve}
-                    dataKey={key}
-                    stroke={series[i].color}
-                    strokeWidth={display.lineWidth}
-                    fill="none"
-                    fillOpacity={0}
-                    dot={false}
-                    activeDot={false}
-                    isAnimationActive={false}
-                    connectNulls
-                  />
-                ))}
-              </AreaChart>
-            </ResponsiveContainer>
+            {chartEl}
+            {cursorOverlay}
           </div>
 
           <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-2.5 font-mono text-xs sm:px-4">

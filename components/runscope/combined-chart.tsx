@@ -1694,13 +1694,20 @@ function AnalysisPane({
     return { rows: [...map.values()].sort((a, b) => (a.t as number) - (b.t as number)), keys: paneSeries.map((_, i) => `k${i}`) }
   }, [paneSeries, reduced, rangeOf])
 
-  // Re-render on pane resize so the cursor/peak overlays (positioned from the
-  // measured height) stay correct as the window or split layout changes.
-  const [, forceTick] = useState(0)
+  // Measured pane size (and side padding) so the cursor overlay lines up with
+  // the plot area as the window or split layout changes.
+  const [box, setBox] = useState({ w: 0, h: 0, padL: 8, padR: 8 })
   useEffect(() => {
     const el = wrapRef.current
     if (!el || typeof ResizeObserver === "undefined") return
-    const ro = new ResizeObserver(() => forceTick((n) => n + 1))
+    const measure = () => {
+      const r = el.getBoundingClientRect()
+      const cs = window.getComputedStyle(el)
+      const next = { w: r.width, h: r.height, padL: parseFloat(cs.paddingLeft) || 0, padR: parseFloat(cs.paddingRight) || 0 }
+      setBox((b) => (Math.abs(b.w - next.w) < 0.5 && Math.abs(b.h - next.h) < 0.5 && b.padL === next.padL && b.padR === next.padR ? b : next))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
@@ -1903,6 +1910,129 @@ function AnalysisPane({
   }, [colorOf, cursorT, paneSeries, sync, transforms, rangeOf]) // eslint-disable-line react-hooks/exhaustive-deps
   const readoutCanPick = readoutInteractive
 
+  // The plot only re-renders for data/style/range changes; moving the cursor
+  // (arrow keys, scrubbing) only redraws the light overlay below it.
+  const activeKey = [...activeSet].sort().join("\u0001")
+  const chartEl = useMemo(
+    () => (
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={rows} margin={{ top: PLOT_TOP, right: RIGHT, left: 4, bottom: 4 }}>
+          {display.showGrid && (
+            <CartesianGrid stroke="var(--muted-foreground)" strokeOpacity={0.22} strokeDasharray="2 4" vertical horizontal />
+          )}
+          <XAxis
+            dataKey="t"
+            type="number"
+            domain={domain}
+            allowDataOverflow
+            tickLine={false}
+            axisLine={{ stroke: "var(--border)" }}
+            tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
+            minTickGap={40}
+            unit={timeUnit}
+          />
+          <YAxis
+            width={readoutMode === "none" ? LEFT : 12}
+            domain={[0, 1]}
+            allowDataOverflow
+            ticks={[0, 0.25, 0.5, 0.75, 1]}
+            tickLine={false}
+            axisLine={false}
+            tick={readoutMode === "none" && axisSig ? { fill: axisColor, fontSize: 10 } : false}
+            tickFormatter={readoutMode === "none" && axisSig ? realAt : undefined}
+          />
+          {shownAnnotations.map((a) => (
+            <ReferenceLine
+              key={a.id}
+              x={a.t}
+              stroke={colorForType(a.type)}
+              strokeWidth={1.5}
+              label={{ value: a.type, position: "insideTopLeft", fontSize: 10, fill: colorForType(a.type) }}
+            />
+          ))}
+          {keys.map((key, i) => {
+            const label = paneSeries[i].signal.label
+            const isActive = activeSet.has(label)
+            return (
+              <Area
+                key={key}
+                type={display.curve}
+                dataKey={(d: Record<string, number | null>) => applyStyle(d[key] ?? null, tf(label))}
+                name={label}
+                stroke={colorOf[label]}
+                strokeWidth={(tf(label).width ?? display.lineWidth) + (isActive ? 1 : 0)}
+                strokeOpacity={!hasActive || isActive || !display.focusDim ? 1 : 0.22}
+                fill="none"
+                dot={false}
+                activeDot={false}
+                isAnimationActive={false}
+                connectNulls
+              />
+            )
+          })}
+          {winSel && (
+            <ReferenceArea
+              x1={Math.min(winSel[0], winSel[1])}
+              x2={Math.max(winSel[0], winSel[1])}
+              y1={0}
+              y2={1}
+              stroke="#ffffff"
+              strokeOpacity={0.85}
+              strokeDasharray="4 3"
+              fill="#ffffff"
+              fillOpacity={0.06}
+            />
+          )}
+          {winSel && <ReferenceLine x={winSel[0]} stroke="#ffffff" strokeWidth={3} strokeOpacity={0.9} />}
+          {winSel && <ReferenceLine x={winSel[1]} stroke="#ffffff" strokeWidth={3} strokeOpacity={0.9} />}
+          {peak && (
+            <ReferenceDot
+              x={peak.t}
+              y={peakDispY}
+              r={5}
+              fill={peak.color}
+              stroke="var(--background)"
+              strokeWidth={2}
+              isFront
+              label={{
+                value: `▲ ${fmt(peak.value, peak.decimals)}${peak.unit !== "—" ? " " + peak.unit : ""}`,
+                position: peakDispY > 0.6 ? "bottom" : "top",
+                fontSize: 11,
+                fontWeight: 600,
+                fill: peak.color,
+              }}
+            />
+          )}
+        </AreaChart>
+      </ResponsiveContainer>
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- activeSet/tf/realAt are captured through activeKey/transforms/rangeOf
+    [rows, keys, paneSeries, display, domain, readoutMode, axisSig, axisColor, axisLabel, timeUnit, shownAnnotations, colorOf, transforms, activeKey, hasActive, winSel, peak, peakDispY, rangeOf],
+  )
+
+  const yAxisW = readoutMode === "none" ? LEFT : 12
+  const plotLeft = box.padL + 4 + yAxisW
+  const plotW = Math.max(0, box.w - plotLeft - RIGHT - box.padR)
+  const plotH = Math.max(0, box.h - PLOT_TOP - 34) // x-axis band 30 + bottom margin 4
+  const span = domain[1] - domain[0]
+  const cursorX =
+    sync && cursorT != null && span > 0 && plotW > 0 && cursorT >= domain[0] && cursorT <= domain[1]
+      ? plotLeft + ((cursorT - domain[0]) / span) * plotW
+      : null
+  const cursorOverlay =
+    cursorX == null ? null : (
+      <div className="pointer-events-none absolute inset-0 z-[5]" aria-hidden>
+        <div className="absolute w-0 border-l border-dashed border-muted-foreground/70" style={{ left: cursorX, top: PLOT_TOP, height: plotH }} />
+        {cursorDots.map((dot) => (
+          <div
+            key={dot.label}
+            className="absolute size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-[1.5px] ring-background"
+            style={{ left: cursorX, top: PLOT_TOP + (1 - dot.y) * plotH, backgroundColor: dot.color }}
+          />
+        ))}
+      </div>
+    )
+
   return (
     <div
       ref={wrapRef}
@@ -2002,111 +2132,8 @@ function AnalysisPane({
           </div>
         </div>
       )}
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={rows} margin={{ top: PLOT_TOP, right: RIGHT, left: 4, bottom: 4 }}>
-          {display.showGrid && (
-            <CartesianGrid stroke="var(--muted-foreground)" strokeOpacity={0.22} strokeDasharray="2 4" vertical horizontal />
-          )}
-          <XAxis
-            dataKey="t"
-            type="number"
-            domain={domain}
-            allowDataOverflow
-            tickLine={false}
-            axisLine={{ stroke: "var(--border)" }}
-            tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
-            minTickGap={40}
-            unit={timeUnit}
-          />
-          <YAxis
-            width={readoutMode === "none" ? LEFT : 12}
-            domain={[0, 1]}
-            allowDataOverflow
-            ticks={[0, 0.25, 0.5, 0.75, 1]}
-            tickLine={false}
-            axisLine={false}
-            tick={readoutMode === "none" && axisSig ? { fill: axisColor, fontSize: 10 } : false}
-            tickFormatter={readoutMode === "none" && axisSig ? realAt : undefined}
-          />
-          {sync && cursorT != null && (
-            <ReferenceLine x={cursorT} stroke="var(--muted-foreground)" strokeOpacity={0.7} strokeDasharray="4 3" />
-          )}
-          {cursorDots.map((dot) => (
-            <ReferenceDot
-              key={dot.label}
-              x={dot.t}
-              y={dot.y}
-              r={3}
-              fill={dot.color}
-              stroke="var(--background)"
-              strokeWidth={1.5}
-              isFront
-            />
-          ))}
-          {shownAnnotations.map((a) => (
-            <ReferenceLine
-              key={a.id}
-              x={a.t}
-              stroke={colorForType(a.type)}
-              strokeWidth={1.5}
-              label={{ value: a.type, position: "insideTopLeft", fontSize: 10, fill: colorForType(a.type) }}
-            />
-          ))}
-          {keys.map((key, i) => {
-            const label = paneSeries[i].signal.label
-            const isActive = activeSet.has(label)
-            return (
-              <Area
-                key={key}
-                type={display.curve}
-                dataKey={(d: Record<string, number | null>) => applyStyle(d[key] ?? null, tf(label))}
-                name={label}
-                stroke={colorOf[label]}
-                strokeWidth={(tf(label).width ?? display.lineWidth) + (isActive ? 1 : 0)}
-                strokeOpacity={!hasActive || isActive || !display.focusDim ? 1 : 0.22}
-                fill="none"
-                dot={false}
-                activeDot={false}
-                isAnimationActive={false}
-                connectNulls
-              />
-            )
-          })}
-          {winSel && (
-            <ReferenceArea
-              x1={Math.min(winSel[0], winSel[1])}
-              x2={Math.max(winSel[0], winSel[1])}
-              y1={0}
-              y2={1}
-              stroke="#ffffff"
-              strokeOpacity={0.85}
-              strokeDasharray="4 3"
-              fill="#ffffff"
-              fillOpacity={0.06}
-            />
-          )}
-          {winSel && <ReferenceLine x={winSel[0]} stroke="#ffffff" strokeWidth={3} strokeOpacity={0.9} />}
-          {winSel && <ReferenceLine x={winSel[1]} stroke="#ffffff" strokeWidth={3} strokeOpacity={0.9} />}
-          {peak && (
-            <ReferenceDot
-              x={peak.t}
-              y={peakDispY}
-              r={5}
-              fill={peak.color}
-              stroke="var(--background)"
-              strokeWidth={2}
-              isFront
-              label={{
-                value: `▲ ${fmt(peak.value, peak.decimals)}${peak.unit !== "—" ? " " + peak.unit : ""}`,
-                position: peakDispY > 0.6 ? "bottom" : "top",
-                fontSize: 11,
-                fontWeight: 600,
-                fill: peak.color,
-              }}
-            />
-          )}
-        </AreaChart>
-      </ResponsiveContainer>
+      {chartEl}
+      {cursorOverlay}
     </div>
   )
 }

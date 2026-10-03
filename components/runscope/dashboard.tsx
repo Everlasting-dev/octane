@@ -50,7 +50,7 @@ import {
 } from "@/lib/templates"
 import { TemplateEditor, templateGroups } from "./template-editor"
 import { useShortcuts, type Shortcut } from "@/hooks/use-shortcuts"
-import { useBindings } from "@/lib/keybindings"
+import { canonicalKey, matchesKey, useBindings } from "@/lib/keybindings"
 import { isMobileViewportNow, useMobileViewport } from "@/lib/viewport"
 import { Rail, type ViewMode } from "./rail"
 import { ControlPanel, type ChannelItem } from "./control-panel"
@@ -998,6 +998,7 @@ export const Dashboard = forwardRef<
 
   const visibleChannels = useMemo(() => channels.filter((c) => !hidden.has(c.key)), [channels, hidden])
   // Same unique colours the Channels graphs use (deterministic in preset order).
+  const presetSeries = useMemo(() => presetMatch.channels.map((c) => c.series[0]), [presetMatch])
   const presetColors = useMemo(() => {
     const overrides: Record<string, string | undefined> = {}
     for (const [label, style] of Object.entries(analysisTransforms)) if (style.color) overrides[label] = style.color
@@ -1006,6 +1007,9 @@ export const Dashboard = forwardRef<
       overrides,
     )
   }, [presetMatch, analysisTransforms])
+  // Stable series arrays: the plots memoize their (expensive) downsampled data on
+  // these, so they must not be rebuilt on every render (e.g. each cursor step).
+  const allSeries = useMemo(() => channels.map((c) => c.series[0]), [channels])
   const analysisHidden = useMemo(
     () => new Set(channels.filter((c) => !analysisLabels.has(c.label)).map((c) => c.key)),
     [channels, analysisLabels],
@@ -1017,6 +1021,7 @@ export const Dashboard = forwardRef<
     },
     [channels, analysisLabels, mobileViewport],
   )
+  const analysisSeries = useMemo(() => analysisChannels.map((c) => c.series[0]), [analysisChannels])
   // Quick-search overrides the checklist for the Signal Matrix: type to view any plot fast.
   const matrixChannels = useMemo(() => {
     const q = matrixQuery.trim().toLowerCase()
@@ -1219,8 +1224,6 @@ export const Dashboard = forwardRef<
     { ...bindings.windowMode, description: "Toggle window mode", handler: () => setWindowMode((v) => !v) },
     { ...bindings.zoomIn, description: "Zoom time window in", handler: () => zoomBy(1.5) },
     { ...bindings.zoomOut, description: "Zoom time window out", handler: () => zoomBy(1 / 1.5) },
-    { ...bindings.cursorLeft, description: "Move value cursor left", handler: () => moveCursor(-1) },
-    { ...bindings.cursorRight, description: "Move value cursor right", handler: () => moveCursor(1) },
     { ...bindings.panLeft, description: "Shift time window left", handler: () => panBy(-0.2) },
     { ...bindings.panRight, description: "Shift time window right", handler: () => panBy(0.2) },
     {
@@ -1264,6 +1267,90 @@ export const Dashboard = forwardRef<
     },
   ]
   useShortcuts(shortcuts, hasLogs)
+
+  // Value cursor on the arrow keys (remappable): a tap moves exactly one sample;
+  // holding the key glides the cursor at a steady on-screen speed (crosses the
+  // visible window in ~5 s, twice as fast after 2 s), driven by animation frames
+  // instead of the OS key-repeat, so it never queues up or jumps.
+  const glideState = useRef({ cursorT, domain, duration })
+  glideState.current = { cursorT, domain, duration }
+  const moveCursorRef = useRef(moveCursor)
+  moveCursorRef.current = moveCursor
+  useEffect(() => {
+    if (!hasLogs) return
+    let glide: { dir: -1 | 1; key: string; raf: number; timer: number; start: number; last: number } | null = null
+    const stop = () => {
+      if (!glide) return
+      cancelAnimationFrame(glide.raf)
+      window.clearTimeout(glide.timer)
+      glide = null
+    }
+    const frame = (now: number) => {
+      const g = glide
+      if (!g) return
+      const dt = Math.min(0.1, (now - g.last) / 1000)
+      g.last = now
+      const st = glideState.current
+      let [a, b] = st.domain
+      const width = b - a
+      if (width <= 0 || st.duration <= 0) return
+      const speed = (width / 5) * (now - g.start > 2000 ? 2 : 1)
+      const from = st.cursorT ?? (a + b) / 2
+      const t = Math.max(0, Math.min(st.duration, from + g.dir * speed * dt))
+      // keep the cursor inside the window: the window slides along with it
+      if (width < st.duration) {
+        if (t > b) {
+          b = t
+          a = t - width
+        } else if (t < a) {
+          a = t
+          b = t + width
+        }
+        if (a < 0) {
+          a = 0
+          b = width
+        }
+        if (b > st.duration) {
+          b = st.duration
+          a = st.duration - width
+        }
+        if (a !== st.domain[0]) setDomain([a, b])
+      }
+      setCursorT(t)
+      glideState.current = { ...st, cursorT: t, domain: [a, b] }
+      if ((g.dir > 0 && t >= st.duration) || (g.dir < 0 && t <= 0)) return stop()
+      g.raf = requestAnimationFrame(frame)
+    }
+    const onDown = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return
+      const dir = matchesKey(e, bindings.cursorRight) ? 1 : matchesKey(e, bindings.cursorLeft) ? -1 : 0
+      if (!dir) return
+      e.preventDefault()
+      if (e.repeat) return // holding is handled by the glide, not by OS key-repeat
+      stop()
+      if (!sync) setSync(true)
+      moveCursorRef.current(dir)
+      const g = { dir: dir as -1 | 1, key: canonicalKey(e.key), raf: 0, timer: 0, start: 0, last: 0 }
+      g.timer = window.setTimeout(() => {
+        g.start = g.last = performance.now()
+        g.raf = requestAnimationFrame(frame)
+      }, 220)
+      glide = g
+    }
+    const onUp = (e: KeyboardEvent) => {
+      if (glide && canonicalKey(e.key) === glide.key) stop()
+    }
+    window.addEventListener("keydown", onDown)
+    window.addEventListener("keyup", onUp)
+    window.addEventListener("blur", stop)
+    return () => {
+      stop()
+      window.removeEventListener("keydown", onDown)
+      window.removeEventListener("keyup", onUp)
+      window.removeEventListener("blur", stop)
+    }
+  }, [hasLogs, bindings, sync])
 
   return (
     <div
@@ -1652,8 +1739,8 @@ export const Dashboard = forwardRef<
                 ) : view === "plot" ? (
                   <div className="analysis-plot-shell flex min-h-0 flex-1 flex-col pb-20 lg:pb-4">
                     <CombinedChart
-                      series={analysisChannels.map((c) => c.series[0])}
-                      availableSeries={channels.map((c) => c.series[0])}
+                      series={analysisSeries}
+                      availableSeries={allSeries}
                       domain={domain}
                       sync={sync}
                       cursorT={sync ? cursorT : null}
@@ -1807,8 +1894,8 @@ export const Dashboard = forwardRef<
                             </div>
                           ) : (
                             <CombinedChart
-                              series={presetMatch.channels.map((c) => c.series[0])}
-                              availableSeries={channels.map((c) => c.series[0])}
+                              series={presetSeries}
+                              availableSeries={allSeries}
                               presetGroups={presetMatch.groups}
                               panelTitle={activePreset.name}
                               workbench
@@ -1900,8 +1987,8 @@ export const Dashboard = forwardRef<
                         </div>
                       ) : (
                         <CombinedChart
-                          series={presetMatch.channels.map((c) => c.series[0])}
-                          availableSeries={channels.map((c) => c.series[0])}
+                          series={presetSeries}
+                          availableSeries={allSeries}
                           presetGroups={presetMatch.groups}
                           panelTitle={activePreset.name}
                           domain={domain}
