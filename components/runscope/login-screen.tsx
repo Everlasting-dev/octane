@@ -72,7 +72,11 @@ export function LoginScreen({ onSuccess, initialError = null }: { onSuccess: (st
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="username"
-              className="h-9 rounded-md border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30"
+              inputMode="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              className="h-11 rounded-md border border-border bg-card px-3 text-base text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30 sm:h-9 sm:text-sm"
               placeholder="you@example.com"
             />
           </label>
@@ -83,7 +87,7 @@ export function LoginScreen({ onSuccess, initialError = null }: { onSuccess: (st
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
-              className="h-9 rounded-md border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30"
+              className="h-11 rounded-md border border-border bg-card px-3 text-base text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30 sm:h-9 sm:text-sm"
               placeholder="••••••••"
             />
           </label>
@@ -107,7 +111,7 @@ export function LoginScreen({ onSuccess, initialError = null }: { onSuccess: (st
           <button
             type="submit"
             disabled={loading || !email || !password}
-            className="mt-1 inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+            className="mt-1 inline-flex h-11 items-center justify-center gap-1.5 rounded-md bg-primary text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 sm:h-9"
           >
             {loading ? <Loader2 className="size-4 animate-spin" /> : <LogIn className="size-4" />}
             Sign in
@@ -115,7 +119,8 @@ export function LoginScreen({ onSuccess, initialError = null }: { onSuccess: (st
         </form>
         </div>
 
-        <section className="rounded-xl border border-border bg-card/40 p-5">
+        {/* Desktop guide; the phone login stays a single clean form. */}
+        <section className="hidden rounded-xl border border-border bg-card/40 p-5 lg:block">
           <div className="flex items-start gap-3">
             <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <Keyboard className="size-5" />

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { ChevronLeft, ChevronRight, Keyboard, LogOut, RotateCcw, Search, X } from "lucide-react"
 import { DisplayPanel, type DisplaySettings } from "./display-panel"
-import { isDesktopAuth, logout } from "@/lib/auth"
+import { logout } from "@/lib/auth"
 import { getVinMode, setVinMode } from "@/lib/vin/settings"
 import type { VinMode } from "@/lib/vin/types"
 import {
@@ -306,21 +306,19 @@ export function SettingsModal({
               </p>
             </div>
 
-            {isDesktopAuth() && (
-              <div className="border-t border-border pt-4">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await logout()
-                    window.location.reload()
-                  }}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-secondary"
-                >
-                  <LogOut className="size-3.5" />
-                  Sign out
-                </button>
-              </div>
-            )}
+            <div className="border-t border-border pt-4">
+              <button
+                type="button"
+                onClick={async () => {
+                  await logout()
+                  window.location.reload()
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-secondary"
+              >
+                <LogOut className="size-3.5" />
+                Sign out
+              </button>
+            </div>
             </div>
           </div>
         ) : (

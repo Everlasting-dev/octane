@@ -202,6 +202,10 @@ export function AppShell() {
         <LoginScreen
           initialError={authError}
           onSuccess={(state) => {
+            // iOS can leave the page scrolled after the keyboard closes; the app
+            // itself never scrolls the document, so start it back at the top.
+            if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+            window.scrollTo(0, 0)
             setAuthUser(state.user ?? null)
             setAuthError(null)
             setAuthState("in")
