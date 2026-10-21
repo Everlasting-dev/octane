@@ -8,6 +8,21 @@ published as GitHub releases or tags, and the only public release is the
 current `0.9.x` line. Their entries are kept below for history and are marked
 accordingly. Version numbers therefore decrease part-way down this file.
 
+## Unreleased
+
+### Added
+
+- **Self check**: every loaded log is scanned automatically for things worth a second look. A header button shows the counts (critical / warnings) and opens the panel; `C` toggles it.
+  - Transmission: clutch slipping under power, engine flare as a gear engages (up- and downshifts), slow or incomplete shifts, transmission fluid temperature, line / clutch pressure not reaching target, clutch pressure above the stock seal limit, CSP (clutch slip protection) interventions.
+  - Fuel: lean AFR under boost (absolute and against target), AFR bank-to-bank split, fuel pressure dropping at full load, injector duty, fuel trims (the GT-R 100 = neutral scale is handled), unstable ethanol readings.
+  - Boost and air: overboost, underboost once boost has plateaued, bank-to-bank boost split, wastegate duty maxed, saturated boost / MAP / oil pressure sensors, MAF voltage maxed, hot intake air, throttle closing at full pedal, pedal / throttle sensor disagreement.
+  - Engine and chassis: knock retard, coolant temperature (boost restriction above 110 °C), coolant pressure (including pressure building while cold: a head gasket warning sign), oil pressure low for the rpm, VVT not following target, battery / charging voltage, wheel slip, traction control cuts, vehicle vs wheel speed mismatch, engine speed (8,192 rpm TCM limit), RaceROM failsafe / stored failsafe / MIL decoding.
+  - Optional (off by default): warm idle compared with the factory CONSULT reference values.
+- Each finding has its measured values, likely causes and what to check, related DTCs and references (Nissan GT-R service manual section EC, EcuTek RaceROM / TCM documentation). **Jump** moves the cursor to it, **Plot** opens Analysis with the channels that explain it.
+- Findings are shaded on the Signal Matrix and Analysis plots, and the bottom strip shows the finding under the cursor.
+- **Tune checks**: every threshold can be changed (and every check switched off) in the panel; changes re-run immediately and are remembered. Settings -> Self check turns the feature or the plot shading off.
+- `scripts/self-check-report.mjs` runs the same checks on CSV files from the command line, for tuning thresholds against real logs.
+
 ## v0.9.8 - 2026-10-03
 
 ### Added

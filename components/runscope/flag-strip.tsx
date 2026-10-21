@@ -1,9 +1,11 @@
 "use client"
 
 import { useMemo } from "react"
-import { TriangleAlert } from "lucide-react"
+import { ShieldCheck, TriangleAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { Signal } from "@/lib/telemetry"
+import { severityRank, type Finding } from "@/lib/self-check"
+import { SEVERITY_TONE, SeverityIcon } from "./self-check-panel"
 import {
   decodeValue,
   decoderFor,
@@ -35,12 +37,17 @@ export function FlagStrip({
   domain,
   timeUnit,
   onJump,
+  issues,
+  onOpenIssue,
 }: {
   signals: Signal[]
   cursorT: number | null
   domain: [number, number]
   timeUnit: string
   onJump: (t: number) => void
+  /** Self check findings (undefined when the self check is off) */
+  issues?: Finding[]
+  onOpenIssue?: (f: Finding) => void
 }) {
   const decoders = useFlagDecoders()
   const channels = useMemo(() => {
@@ -61,9 +68,16 @@ export function FlagStrip({
     })
   }, [channels])
 
-  if (!channels.length) return null
+  if (!channels.length && !issues) return null
   const atCursor = cursorT != null
   const t = cursorT ?? domain[1]
+  // Worst self check finding under the cursor (or, without a cursor, the
+  // worst one in view).
+  const here = issues
+    ? issues
+        .filter((f) => (atCursor ? t >= f.start - 0.05 && t <= f.end + 0.05 : f.end >= domain[0] && f.start <= domain[1]))
+        .sort((a, b) => severityRank(b.severity) - severityRank(a.severity) || a.start - b.start)[0]
+    : undefined
 
   return (
     <div
@@ -74,6 +88,31 @@ export function FlagStrip({
         {atCursor ? "@" : "end"} {t.toFixed(2)}
         {timeUnit}
       </span>
+      {issues && (
+        <span className="flex shrink-0 items-center gap-1.5">
+          {here ? (
+            <button
+              type="button"
+              onClick={() => onOpenIssue?.(here)}
+              title={`Self check: ${here.title}. ${here.detail}`}
+              className={cn(
+                "inline-flex max-w-[28rem] items-center gap-1 truncate rounded border px-1.5 py-0.5 transition-colors hover:brightness-125",
+                SEVERITY_TONE[here.severity].border,
+                SEVERITY_TONE[here.severity].bg,
+                SEVERITY_TONE[here.severity].text,
+              )}
+            >
+              <SeverityIcon severity={here.severity} className="size-3" />
+              <span className="truncate">{here.title}</span>
+            </button>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-emerald-400/80" title={issues.length ? "No self check finding at this point" : "Self check: nothing flagged"}>
+              <ShieldCheck className="size-3" />
+              {issues.length ? "check ok here" : "check ok"}
+            </span>
+          )}
+        </span>
+      )}
       {trips.length > 0 && (
         <span className="flex shrink-0 items-center gap-1.5">
           {trips.slice(0, 3).map((trip) => (

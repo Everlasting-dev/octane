@@ -45,6 +45,7 @@ export type ActionId =
   | "searchChannels"
   | "shortcutsHelp"
   | "scrollTop"
+  | "selfCheck"
 
 export type ActionContext = "plot" | "matrix" | "channels" | "compare" | "time" | "global"
 
@@ -98,6 +99,7 @@ export const ACTIONS: { id: ActionId; label: string; context: ActionContext; gro
   { id: "sync", label: "Sync cursors", context: "global", group: "tools" },
   { id: "annotate", label: "Annotate", context: "global", group: "tools" },
   { id: "togglePick", label: "Pick lines from the readout", context: "global", group: "tools" },
+  { id: "selfCheck", label: "Self check panel", context: "global", group: "tools" },
   { id: "toggleGrid", label: "Grid lines", context: "global", group: "tools" },
   { id: "heightCycle", label: "Graph height (Signal Matrix)", context: "matrix", group: "tools" },
   { id: "editChannels", label: "Edit templates (Channels)", context: "channels", group: "tools" },
@@ -170,6 +172,7 @@ export const DEFAULT_BINDINGS: Bindings = {
   searchChannels: k("k", { ctrl: true }),
   shortcutsHelp: k("?", { shift: true }),
   scrollTop: k("Home"),
+  selfCheck: k("c"),
 }
 
 const KEY = "octane:keybindings"

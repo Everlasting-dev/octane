@@ -22,6 +22,43 @@ import {
 import { cn } from "@/lib/utils"
 import { loadFailsafeTable, saveFailsafeTable, type FailsafeTable } from "@/lib/flag-decoders"
 import { CURSOR_SPEEDS, loadCursorSpeed, saveCursorSpeed } from "@/lib/cursor-speed"
+import { useSelfCheckPrefs } from "@/lib/self-check-store"
+
+function SelfCheckSettings() {
+  const [prefs, setPrefs] = useSelfCheckPrefs()
+  const row = (label: string, hint: string, on: boolean, set: (v: boolean) => void, disabled = false) => (
+    <label className={cn("flex items-start justify-between gap-3", disabled && "opacity-50")}>
+      <span className="min-w-0">
+        <span className="block text-[11px] font-medium text-foreground">{label}</span>
+        <span className="block text-[10px] leading-relaxed text-muted-foreground">{hint}</span>
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        aria-label={label}
+        disabled={disabled}
+        onClick={() => set(!on)}
+        className={cn("relative mt-0.5 inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors", on ? "bg-primary" : "bg-muted-foreground/40")}
+      >
+        <span className={cn("absolute size-3 rounded-full bg-background shadow transition-transform", on ? "translate-x-3.5" : "translate-x-0.5")} />
+      </button>
+    </label>
+  )
+  return (
+    <div className="flex flex-col gap-2.5 border-t border-border pt-4">
+      <span className="text-xs font-medium text-foreground">Self check</span>
+      {row(
+        "Check logs automatically",
+        "Scans each loaded log for clutch slip, shift flare, lean AFR under boost, fuel pressure sag, boost, coolant and oil pressure, wheel slip and more. Open it from the Self check button in the header.",
+        prefs.enabled,
+        (v) => setPrefs({ ...prefs, enabled: v }),
+      )}
+      {row("Shade findings on plots", "Colours the time ranges of findings on the matrix and Analysis plots, and shows the finding under the cursor in the bottom strip.", prefs.markPlots, (v) => setPrefs({ ...prefs, markPlots: v }), !prefs.enabled)}
+      <p className="text-[10px] leading-relaxed text-muted-foreground">Thresholds can be tuned per check in the Self check panel (Tune checks). They are starting points from the Nissan service manual, EcuTek documentation and common GT-R practice, so treat findings as prompts to look, not diagnoses.</p>
+    </div>
+  )
+}
 
 function ShortcutEditor() {
   const [bindings, setBindings] = useState<Bindings>(DEFAULT_BINDINGS)
@@ -280,6 +317,8 @@ export function SettingsModal({
                 {CURSOR_SPEEDS.find((s) => s.id === cursorSpeed)?.secondsPerScreen ?? 20} seconds. A tap always moves one sample. Zoom in to go slower through the data.
               </p>
             </div>
+
+            <SelfCheckSettings />
 
             <div className="flex flex-col gap-2 border-t border-border pt-4">
               <span className="text-xs font-medium text-foreground">Failsafe flag decoding</span>

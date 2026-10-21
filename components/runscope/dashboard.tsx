@@ -15,6 +15,7 @@ import {
   Plus,
   RefreshCw,
   ScanSearch,
+  ShieldCheck,
   Search,
   SlidersHorizontal,
   TriangleAlert,
@@ -70,7 +71,10 @@ import { AnnotationDialog, type AnnotationDraft } from "./annotation-dialog"
 import { LicenseBadge } from "./license-badge"
 import { CloudLogsDialog } from "./cloud-logs-dialog"
 import { FlagStrip } from "./flag-strip"
-import { decodeValue, decoderFor, describe, stepValueAt, useFlagDecoders } from "@/lib/flag-decoders"
+import { decodeValue, decoderFor, describe, stepValueAt, useFailsafeTable, useFlagDecoders } from "@/lib/flag-decoders"
+import { runSelfCheck, severityRank, type CheckReport, type Finding } from "@/lib/self-check"
+import { useSelfCheckConfig, useSelfCheckPrefs } from "@/lib/self-check-store"
+import { SelfCheckPanel, SeverityIcon } from "./self-check-panel"
 import { cn } from "@/lib/utils"
 import { COMPARE_FILE_COLORS, assignLineColors } from "@/lib/palette"
 import { loadLineStyles, saveLineStyles } from "@/lib/line-style"
@@ -437,6 +441,27 @@ export const Dashboard = forwardRef<
   const comparing = view === "compare" && canCompare
   const activeLog = logs[activeIndex] ?? logs[0]
   const timeUnit = activeLog?.indexed ? "" : "s"
+
+  // --- Self check ------------------------------------------------------------
+  const [selfCheckPrefs, setSelfCheckPrefs] = useSelfCheckPrefs()
+  const [selfCheckConfig, setSelfCheckConfig] = useSelfCheckConfig()
+  const failsafeTable = useFailsafeTable()
+  const [selfCheckOpen, setSelfCheckOpen] = useState(false)
+  const [selectedFinding, setSelectedFinding] = useState<string | null>(null)
+  const selfCheckLog = comparing ? logs[0] : activeLog
+  const selfCheck = useMemo<CheckReport | null>(() => {
+    if (!selfCheckPrefs.enabled || !selfCheckLog) return null
+    try {
+      return runSelfCheck(selfCheckLog, selfCheckConfig, { failsafeTable })
+    } catch {
+      return null
+    }
+  }, [selfCheckLog, selfCheckConfig, selfCheckPrefs.enabled, failsafeTable])
+  const plotIssues = useMemo<Finding[] | undefined>(() => {
+    if (!selfCheck || !selfCheckPrefs.markPlots) return undefined
+    const min = severityRank(selfCheckPrefs.minSeverity)
+    return selfCheck.findings.filter((f) => severityRank(f.severity) >= min)
+  }, [selfCheck, selfCheckPrefs.markPlots, selfCheckPrefs.minSeverity])
 
   useEffect(() => {
     if (!mobileViewport || !activeLog) return
@@ -884,6 +909,34 @@ export const Dashboard = forwardRef<
     setCursorT(t)
   }
 
+  // Self check: show a finding. Keeps the window width if the finding fits,
+  // otherwise widens it around the finding.
+  function showFinding(f: Finding) {
+    setSelectedFinding(f.id)
+    const width = domain[1] - domain[0]
+    const span = f.end - f.start
+    if (span > width * 0.8 || width >= duration) {
+      const pad = Math.max(1.5, span * 0.4)
+      setWindow(f.start - pad, f.end + pad)
+      setCursorT(f.peak)
+    } else {
+      jumpToTime(f.peak)
+    }
+    if (mobileViewport) setSelfCheckOpen(false)
+  }
+
+  // Open the finding in Analysis with the channels that explain it.
+  function plotFinding(f: Finding) {
+    setSelectedFinding(f.id)
+    if (comparing) return showFinding(f)
+    if (view !== "plot") changeView("plot")
+    setVisibleLabels(f.channels)
+    const pad = Math.max(2, (f.end - f.start) * 0.5)
+    setWindow(f.start - pad, f.end + pad)
+    setCursorT(f.peak)
+    if (mobileViewport) setSelfCheckOpen(false)
+  }
+
   function removeAnnotation(id: string) {
     if (!activeLog) return
     const next = annotations.filter((a) => a.id !== id)
@@ -1221,6 +1274,7 @@ export const Dashboard = forwardRef<
     { ...bindings.editChannels, description: "Edit templates", handler: () => !mobileViewport && view === "channels" && setChannelsEditOpen(true) },
     { ...bindings.reset, description: "Reset view", handler: resetControls },
     { ...bindings.toggleGrid, description: "Toggle grid lines", handler: () => setDisplay((d) => ({ ...d, showGrid: !d.showGrid })) },
+    { ...bindings.selfCheck, description: "Self check panel", handler: () => selfCheckPrefs.enabled && setSelfCheckOpen((v) => !v) },
     { ...bindings.lockCompare, description: "Lock alignment (Compare)", handler: () => setCompareLocked((v) => !v) },
     { ...bindings.windowMode, description: "Toggle window mode", handler: () => setWindowMode((v) => !v) },
     { ...bindings.zoomIn, description: "Zoom time window in", handler: () => zoomBy(1.5) },
@@ -1453,6 +1507,9 @@ export const Dashboard = forwardRef<
               >
                 <SlidersHorizontal className="size-4" />
               </button>
+            )}
+            {hasLogs && selfCheckPrefs.enabled && (
+              <SelfCheckButton report={selfCheck} open={selfCheckOpen} onClick={() => setSelfCheckOpen((v) => !v)} />
             )}
             <button
               type="button"
@@ -1766,6 +1823,7 @@ export const Dashboard = forwardRef<
                       onWindowModeChange={setWindowMode}
                       onWindowSelect={selectWindow}
                       maxLines={MOBILE_ANALYSIS_MAX_CHANNELS}
+                      issues={plotIssues}
                       timelineSlot={
                         duration > 0 && overview.length > 0 ? (
                           <RangeBrush
@@ -2069,6 +2127,7 @@ export const Dashboard = forwardRef<
                         windowMode={windowMode}
                         onWindowSelect={selectWindow}
                         onWindowReset={fitWindowStable}
+                        issues={comparing ? undefined : plotIssues}
                       />
                       </LazyMount>
                     ))}
@@ -2082,6 +2141,11 @@ export const Dashboard = forwardRef<
                   domain={domain}
                   timeUnit={timeUnit}
                   onJump={jumpToTime}
+                  issues={selfCheck ? (plotIssues ?? selfCheck.findings) : undefined}
+                  onOpenIssue={(f) => {
+                    setSelectedFinding(f.id)
+                    setSelfCheckOpen(true)
+                  }}
                 />
               )}
             </div>
@@ -2108,6 +2172,22 @@ export const Dashboard = forwardRef<
             </button>
           </div>
         </div>
+      )}
+      {selfCheckOpen && hasLogs && (
+        <SelfCheckPanel
+          report={selfCheck}
+          fileName={selfCheckLog?.fileName ?? ""}
+          timeUnit={timeUnit}
+          mobile={mobileViewport}
+          prefs={selfCheckPrefs}
+          onPrefsChange={setSelfCheckPrefs}
+          config={selfCheckConfig}
+          onConfigChange={setSelfCheckConfig}
+          selectedId={selectedFinding}
+          onJump={showFinding}
+          onPlot={plotFinding}
+          onClose={() => setSelfCheckOpen(false)}
+        />
       )}
       <AboutModal open={showAbout} onClose={() => setShowAbout(false)} />
       <ShortcutsModal
@@ -2564,5 +2644,36 @@ function AnnotationFloat({
         </ul>
       </div>
     </div>
+  )
+}
+
+/** Header button: worst severity icon plus counts; green shield when clean. */
+function SelfCheckButton({ report, open, onClick }: { report: CheckReport | null; open: boolean; onClick: () => void }) {
+  const crit = report?.counts.critical ?? 0
+  const warn = report?.counts.warn ?? 0
+  const info = report?.counts.info ?? 0
+  const worst = crit ? "critical" : warn ? "warn" : info ? "info" : null
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={open}
+      title={report ? `Self check: ${crit} critical, ${warn} warnings, ${info} info` : "Self check"}
+      aria-label="Self check"
+      className={cn(
+        "inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors",
+        open ? "border-primary bg-primary/15 text-foreground" : "border-border bg-card text-foreground hover:bg-secondary",
+      )}
+    >
+      {worst ? <SeverityIcon severity={worst} className="size-4" /> : <ShieldCheck className="size-4 text-emerald-400" />}
+      <span className="hidden sm:inline">Self check</span>
+      {(crit > 0 || warn > 0) && (
+        <span className="font-mono tabular-nums">
+          {crit > 0 && <span className="text-red-400">{crit}</span>}
+          {crit > 0 && warn > 0 && <span className="text-muted-foreground">/</span>}
+          {warn > 0 && <span className="text-amber-300">{warn}</span>}
+        </span>
+      )}
+    </button>
   )
 }

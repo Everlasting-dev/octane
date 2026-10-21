@@ -45,6 +45,7 @@ import {
 import { matchesKey, useBindings } from "@/lib/keybindings"
 import { useMobileLandscapeTight, useMobileViewport } from "@/lib/viewport"
 import { colorForType, type Annotation } from "@/lib/annotations"
+import { SEVERITY_FILL, type Finding } from "@/lib/self-check"
 import { resolveTemplateLabels, type Template } from "@/lib/templates"
 import type { ChartSeries } from "./signal-chart"
 import type { DisplaySettings } from "./display-panel"
@@ -114,6 +115,8 @@ interface CombinedChartProps {
   onWindowSelect?: (start: number, end: number) => void
   /** Max lines on the phone plot. */
   maxLines?: number
+  /** Self check findings to shade on the plot */
+  issues?: Finding[]
 }
 
 function fmt(v: number, decimals: number) {
@@ -337,6 +340,7 @@ function CombinedChartImpl({
   onWindowModeChange,
   onWindowSelect,
   maxLines = MOBILE_ANALYSIS_MAX_CHANNELS,
+  issues,
 }: CombinedChartProps) {
   const allSeries = availableSeries ?? series
   const presetMode = presetGroups !== undefined
@@ -1057,6 +1061,7 @@ function CombinedChartImpl({
                 annotateMode={annotateMode}
                 markPeaks={markPeaks}
                 shownAnnotations={shownAnnotations}
+                shownIssues={issues}
                 heightClass={cn(paneHeight(paneGroups.length), p > 0 && "border-t border-border")}
                 readoutMode={presetMode || mobilePlot || !sidePanelOpen ? "ghost" : groupMode ? "pane" : "none"}
                 readoutLimit={pane.series.length}
@@ -1615,6 +1620,7 @@ function AnalysisPane({
   annotateMode,
   markPeaks,
   shownAnnotations,
+  shownIssues,
   heightClass,
   readoutMode,
   readoutLimit,
@@ -1649,6 +1655,7 @@ function AnalysisPane({
   annotateMode: boolean
   markPeaks: boolean
   shownAnnotations: Annotation[]
+  shownIssues?: Finding[]
   heightClass: string
   readoutMode: ReadoutMode
   readoutLimit: number
@@ -1950,6 +1957,18 @@ function AnalysisPane({
             tick={readoutMode === "none" && axisSig ? { fill: axisColor, fontSize: 10 } : false}
             tickFormatter={readoutMode === "none" && axisSig ? realAt : undefined}
           />
+          {(shownIssues ?? []).map((f) => (
+            <ReferenceArea
+              key={f.id}
+              x1={f.start}
+              x2={Math.max(f.end, f.start + (domain[1] - domain[0]) * 0.004)}
+              fill={SEVERITY_FILL[f.severity]}
+              fillOpacity={0.12}
+              stroke={SEVERITY_FILL[f.severity]}
+              strokeOpacity={0.3}
+              ifOverflow="hidden"
+            />
+          ))}
           {shownAnnotations.map((a) => (
             <ReferenceLine
               key={a.id}
@@ -2016,7 +2035,7 @@ function AnalysisPane({
       </ResponsiveContainer>
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- activeSet/tf/realAt are captured through activeKey/transforms/rangeOf
-    [rows, keys, paneSeries, display, domain, readoutMode, axisSig, axisColor, axisLabel, timeUnit, shownAnnotations, colorOf, transforms, activeKey, hasActive, winSel, peak, peakDispY, rangeOf],
+    [rows, keys, paneSeries, display, domain, readoutMode, axisSig, axisColor, axisLabel, timeUnit, shownAnnotations, shownIssues, colorOf, transforms, activeKey, hasActive, winSel, peak, peakDispY, rangeOf],
   )
 
   const yAxisW = readoutMode === "none" ? LEFT : 12

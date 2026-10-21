@@ -19,6 +19,7 @@ import type { DiffStats } from "@/lib/compare"
 import { lttb } from "@/lib/downsample"
 import { colorForType, type Annotation } from "@/lib/annotations"
 import { decodeValue, decoderFor, describe, stepValueAt, useFlagDecoders } from "@/lib/flag-decoders"
+import { SEVERITY_FILL, type Finding } from "@/lib/self-check"
 
 const HEIGHT_CLASS: Record<DisplaySettings["height"], string> = {
   mini: "h-20 sm:h-24",
@@ -73,6 +74,8 @@ interface SignalChartProps {
   windowMode?: boolean
   onWindowSelect?: (start: number, end: number) => void
   onWindowReset?: () => void
+  /** Self check findings to shade (only those involving this channel are drawn) */
+  issues?: Finding[]
 }
 
 function fmt(v: number, decimals: number) {
@@ -148,6 +151,7 @@ function SignalChartImpl({
   windowMode = false,
   onWindowSelect,
   onWindowReset,
+  issues,
 }: SignalChartProps) {
   const isCompare = series.length > 1
   const primary = series[0]
@@ -200,6 +204,8 @@ function SignalChartImpl({
     () => annotations.filter((a) => !a.channel || a.channel === label),
     [annotations, label],
   )
+
+  const shownIssues = useMemo(() => (issues ?? []).filter((f) => f.channels.includes(label)), [issues, label])
 
   // Downsample each series, then merge onto one dataset keyed k0, k1, …
   const { rows, keys } = useMemo(() => {
@@ -405,6 +411,18 @@ function SignalChartImpl({
                     return suffix ? `${value}${suffix}` : value
                   }}
                 />
+                {shownIssues.map((f) => (
+                  <ReferenceArea
+                    key={f.id}
+                    x1={f.start}
+                    x2={Math.max(f.end, f.start + (domain[1] - domain[0]) * 0.004)}
+                    fill={SEVERITY_FILL[f.severity]}
+                    fillOpacity={0.14}
+                    stroke={SEVERITY_FILL[f.severity]}
+                    strokeOpacity={0.35}
+                    ifOverflow="hidden"
+                  />
+                ))}
                 {shownAnnotations.map((a) => (
                   <ReferenceLine
                     key={a.id}
@@ -446,7 +464,7 @@ function SignalChartImpl({
             </ResponsiveContainer>
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handlers are stable ref wrappers
-    [rows, keys, series, display, domain, yDomain, yTicks, yAxisWidth, decimals, unit, timeUnit, shownAnnotations, winSel],
+    [rows, keys, series, display, domain, yDomain, yTicks, yAxisWidth, decimals, unit, timeUnit, shownAnnotations, shownIssues, winSel],
   )
 
   const plotW = Math.max(0, box.w - PAD_X * 2 - M_LEFT - M_RIGHT - yAxisWidth)

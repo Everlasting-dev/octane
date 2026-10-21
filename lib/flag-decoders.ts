@@ -187,7 +187,8 @@ export function saveFailsafeTable(t: FailsafeTable) {
   }
 }
 
-export function useFlagDecoders(): FlagDecoder[] {
+/** The failsafe table chosen in Settings, kept in sync across components. */
+export function useFailsafeTable(): FailsafeTable {
   const [table, setTable] = useState<FailsafeTable>("phase6")
   useEffect(() => {
     setTable(loadFailsafeTable())
@@ -195,6 +196,11 @@ export function useFlagDecoders(): FlagDecoder[] {
     window.addEventListener(TABLE_EVT, h)
     return () => window.removeEventListener(TABLE_EVT, h)
   }, [])
+  return table
+}
+
+export function useFlagDecoders(): FlagDecoder[] {
+  const table = useFailsafeTable()
   const [decoders, setDecoders] = useState(() => buildDecoders("phase6"))
   useEffect(() => setDecoders(buildDecoders(table)), [table])
   return decoders
