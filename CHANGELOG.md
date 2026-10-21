@@ -8,7 +8,7 @@ published as GitHub releases or tags, and the only public release is the
 current `0.9.x` line. Their entries are kept below for history and are marked
 accordingly. Version numbers therefore decrease part-way down this file.
 
-## Unreleased
+## v0.9.9 - 2026-10-21
 
 ### Added
 
@@ -22,6 +22,18 @@ accordingly. Version numbers therefore decrease part-way down this file.
 - Findings are shaded on the Signal Matrix and Analysis plots, and the bottom strip shows the finding under the cursor.
 - **Tune checks**: every threshold can be changed (and every check switched off) in the panel; changes re-run immediately and are remembered. Settings -> Self check turns the feature or the plot shading off.
 - `scripts/self-check-report.mjs` runs the same checks on CSV files from the command line, for tuning thresholds against real logs.
+- Cloud Logs on the phone (admin account only): save the open log to the cloud library from the web / phone app, then load it or **Save .csv** on the PC. Every library entry now has a Save .csv button that downloads the original file.
+- The Lines panel, the Analysis line list and groups, the Channels Values panel and the Self check panel can be resized by dragging their left edge (double-click resets). Each remembers its width.
+- New install command (see the install site README): locks the license to the PC, signs you in, removes every older version completely, installs the latest release after checking its checksum, signs the app in for you, deletes the downloaded files and finishes with a self diagnosis. `octane-check` runs the self diagnosis on its own.
+
+### Changed
+
+- Licenses last 30 days from an account's first ever sign-in (was 15); Renew adds 30 days. A deployed license database needs `supabase/licenses-30-days.sql` run once.
+- The Self check panel closes when you click or tap anywhere outside it, or press Esc.
+
+### Fixed
+
+- The cursor dot now sits exactly on the drawn line. Plots used to downsample the whole log once, so a zoomed-in window drew only a few points with the smooth curve while the dot followed the real readings. Each plot now draws the visible window (every real sample once it fits) and places the dot with the same curve; the readout still shows the real value.
 
 ## v0.9.8 - 2026-10-03
 
