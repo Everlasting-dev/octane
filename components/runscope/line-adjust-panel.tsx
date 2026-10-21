@@ -14,6 +14,7 @@ import {
   type LineStyle,
 } from "@/lib/line-style"
 import type { ChartSeries } from "./signal-chart"
+import { ResizeHandle, usePanelWidth } from "./resizable"
 
 interface LineAdjustPanelProps {
   series: ChartSeries[]
@@ -51,6 +52,7 @@ export function LineAdjustPanel({
   onClose,
 }: LineAdjustPanelProps) {
   const [pickerFor, setPickerFor] = useState<string | null>(null)
+  const panel = usePanelWidth("lines", 368, 280, 760)
 
   function update(label: string, fn: (s: LineStyle) => LineStyle) {
     setStyles((prev) => {
@@ -99,12 +101,14 @@ export function LineAdjustPanel({
         "octane-line-adjust z-40 flex flex-col border-border bg-popover/95 shadow-2xl backdrop-blur",
         mobile
           ? "fixed inset-x-0 bottom-0 max-h-[78dvh] rounded-t-2xl border-t pb-[env(safe-area-inset-bottom,0px)]"
-          : "absolute inset-y-0 right-0 w-[23rem] border-l",
+          : "absolute inset-y-0 right-0 border-l",
       )}
+      style={mobile ? undefined : { width: panel.width }}
       role="dialog"
       aria-label="Line adjust"
       onPointerDown={(e) => e.stopPropagation()}
     >
+      {!mobile && <ResizeHandle panel={panel} label="Resize Lines panel" />}
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-foreground">Lines</h3>

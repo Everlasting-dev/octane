@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from "react"
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type ReactNode, type SetStateAction } from "react"
 import { createPortal } from "react-dom"
 import {
   ChevronLeft,
@@ -27,7 +27,7 @@ import {
   X,
 } from "lucide-react"
 import { Area, AreaChart, CartesianGrid, ReferenceArea, ReferenceDot, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from "recharts"
-import { lttb } from "@/lib/downsample"
+import { lineValueAt, renderPoints, renderRange } from "@/lib/downsample"
 import { cn, releaseFocus } from "@/lib/utils"
 import { assignLineColors } from "@/lib/palette"
 import {
@@ -46,13 +46,14 @@ import { matchesKey, useBindings } from "@/lib/keybindings"
 import { useMobileLandscapeTight, useMobileViewport } from "@/lib/viewport"
 import { colorForType, type Annotation } from "@/lib/annotations"
 import { SEVERITY_FILL, type Finding } from "@/lib/self-check"
+import { ResizeHandle, usePanelWidth } from "./resizable"
 import { resolveTemplateLabels, type Template } from "@/lib/templates"
 import type { ChartSeries } from "./signal-chart"
 import type { DisplaySettings } from "./display-panel"
 import { LineAdjustPanel } from "./line-adjust-panel"
 import { decodeValue, decoderFor, describe, stepValueAt, useFlagDecoders } from "@/lib/flag-decoders"
 
-const RENDER_POINTS = 700
+const RENDER_POINTS = 1400
 const PLOT_TOP = 10
 const AXIS_H = 28
 const LEFT = 56
@@ -347,6 +348,7 @@ function CombinedChartImpl({
   const [highlightKey, setHighlightKey] = useState<string | null>(null)
   const [hoverKey, setHoverKey] = useState<string | null>(null)
   const [dockOpen, setDockOpen] = useState(true)
+  const dockPanel = usePanelWidth("analysis-dock", 256, 200, 680)
   const [fullscreen, setFullscreen] = useState(false)
   const [browserFullscreen, setBrowserFullscreen] = useState(false)
   // Both mirror CSS media queries rather than window.innerWidth/innerHeight, so
@@ -1100,7 +1102,11 @@ function CombinedChartImpl({
               onUpdateGroups={updateGroups}
             />
           ) : (
-          <aside className="octane-analysis-dock absolute inset-x-0 bottom-0 z-20 flex max-h-[58%] flex-col border-t border-border bg-popover/95 shadow-2xl backdrop-blur sm:static sm:max-h-none sm:w-64 sm:shrink-0 sm:border-l sm:border-t-0 sm:bg-transparent sm:shadow-none sm:backdrop-blur-0">
+          <aside
+            className="octane-analysis-dock absolute inset-x-0 bottom-0 z-20 flex max-h-[58%] flex-col border-t border-border bg-popover/95 shadow-2xl backdrop-blur sm:relative sm:inset-auto sm:max-h-none sm:w-[var(--dock-w)] sm:shrink-0 sm:border-l sm:border-t-0 sm:bg-transparent sm:shadow-none sm:backdrop-blur-0"
+            style={{ "--dock-w": `${dockPanel.width}px` } as CSSProperties}
+          >
+            <ResizeHandle panel={dockPanel} label="Resize line list" />
             <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
               <span className={cn("font-mono text-muted-foreground", mobilePlot ? "text-xs" : "text-[11px]")}>
                 {mobilePlot
@@ -1467,6 +1473,8 @@ function GroupEditor({
     onSetActiveGroup(next[0].id)
   }
 
+  const groupPanel = usePanelWidth("analysis-groups", 320, 240, 680)
+
   function renameActive(name: string) {
     if (!active) return
     onUpdateGroups((current) => current.map((group) => (group.id === active.id ? { ...group, name } : group)))
@@ -1484,7 +1492,11 @@ function GroupEditor({
   }
 
   return (
-    <aside className="octane-analysis-dock absolute inset-x-0 bottom-0 z-20 flex max-h-[62%] flex-col border-t border-border bg-popover/95 shadow-2xl backdrop-blur sm:static sm:max-h-none sm:w-80 sm:shrink-0 sm:border-l sm:border-t-0 sm:bg-transparent sm:shadow-none sm:backdrop-blur-0">
+    <aside
+      className="octane-analysis-dock absolute inset-x-0 bottom-0 z-20 flex max-h-[62%] flex-col border-t border-border bg-popover/95 shadow-2xl backdrop-blur sm:relative sm:inset-auto sm:max-h-none sm:w-[var(--dock-w)] sm:shrink-0 sm:border-l sm:border-t-0 sm:bg-transparent sm:shadow-none sm:backdrop-blur-0"
+      style={{ "--dock-w": `${groupPanel.width}px` } as CSSProperties}
+    >
+      <ResizeHandle panel={groupPanel} label="Resize groups panel" />
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Groups</span>
         <div className="flex items-center gap-1">
@@ -1685,8 +1697,14 @@ function AnalysisPane({
 
   const tf = (label: string): Transform => transforms[label] ?? { gain: 1, offset: 0 }
 
-  // Downsample once per series; re-normalise cheaply when a scale range changes.
-  const reduced = useMemo(() => paneSeries.map((s) => lttb(s.signal.data, RENDER_POINTS)), [paneSeries])
+  // Downsample the visible window per series (full resolution once it fits);
+  // re-normalise cheaply when a scale range changes. The render range only
+  // moves after a quarter-window pan or a power-of-2 zoom.
+  const [r0, r1] = renderRange(domain)
+  const reduced = useMemo(
+    () => paneSeries.map((s) => renderPoints(s.signal.data, [r0, r1], RENDER_POINTS)),
+    [paneSeries, r0, r1],
+  )
   const { rows, keys } = useMemo(() => {
     const map = new Map<number, Record<string, number | null>>()
     paneSeries.forEach((s, si) => {
@@ -1905,10 +1923,11 @@ function AnalysisPane({
 
   const cursorDots = useMemo(() => {
     if (!sync || cursorT == null) return []
-    return paneSeries.flatMap((item) => {
-      const sample = sampleAt(item.signal.data, cursorT)
-      if (sample?.value == null) return []
-      const norm = normalize(sample.value, rangeOf[item.signal.label] ?? lineRange(item.signal))
+    return paneSeries.flatMap((item, si) => {
+      // on the drawn line (same points and curve), not the raw sample
+      const onLine = reduced[si] ? lineValueAt(reduced[si], cursorT, display.curve) : null
+      if (onLine == null) return []
+      const norm = normalize(onLine, rangeOf[item.signal.label] ?? lineRange(item.signal))
       return [
         {
           label: item.signal.label,
@@ -1918,7 +1937,7 @@ function AnalysisPane({
         },
       ]
     })
-  }, [colorOf, cursorT, paneSeries, sync, transforms, rangeOf]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [colorOf, cursorT, paneSeries, sync, transforms, rangeOf, reduced, display.curve]) // eslint-disable-line react-hooks/exhaustive-deps
   const readoutCanPick = readoutInteractive
   const readoutOnRight = (() => {
     if (cursorT == null || box.w <= 0 || domain[1] <= domain[0]) return false

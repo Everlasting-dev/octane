@@ -75,6 +75,7 @@ import { decodeValue, decoderFor, describe, stepValueAt, useFailsafeTable, useFl
 import { runSelfCheck, severityRank, type CheckReport, type Finding } from "@/lib/self-check"
 import { useSelfCheckConfig, useSelfCheckPrefs } from "@/lib/self-check-store"
 import { SelfCheckPanel, SeverityIcon } from "./self-check-panel"
+import { ResizeHandle, usePanelWidth } from "./resizable"
 import { cn } from "@/lib/utils"
 import { COMPARE_FILE_COLORS, assignLineColors } from "@/lib/palette"
 import { loadLineStyles, saveLineStyles } from "@/lib/line-style"
@@ -2439,6 +2440,7 @@ function ChannelsStatsPane({
   onClose: () => void
   onFocusChannel: (label: string) => void
 }) {
+  const panel = usePanelWidth("channels-values", 352, 260, 760)
   const q = query.trim().toLowerCase()
   const visible = (channels.length ? channels : allChannels).filter((channel) => {
     if (!q) return true
@@ -2448,7 +2450,8 @@ function ChannelsStatsPane({
   const decoders = useFlagDecoders()
 
   return (
-    <aside className="flex w-[22rem] shrink-0 flex-col border-l border-border bg-background/80 text-foreground">
+    <aside className="relative flex shrink-0 flex-col border-l border-border bg-background/80 text-foreground" style={{ width: panel.width }}>
+      <ResizeHandle panel={panel} label="Resize Values panel" />
       <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-4 py-3">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-foreground">Values</h3>
@@ -2660,6 +2663,7 @@ function SelfCheckButton({ report, open, onClick }: { report: CheckReport | null
       aria-pressed={open}
       title={report ? `Self check: ${crit} critical, ${warn} warnings, ${info} info` : "Self check"}
       aria-label="Self check"
+      data-self-check-toggle
       className={cn(
         "inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors",
         open ? "border-primary bg-primary/15 text-foreground" : "border-border bg-card text-foreground hover:bg-secondary",

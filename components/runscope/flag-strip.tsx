@@ -94,6 +94,7 @@ export function FlagStrip({
             <button
               type="button"
               onClick={() => onOpenIssue?.(here)}
+              data-self-check-toggle
               title={`Self check: ${here.title}. ${here.detail}`}
               className={cn(
                 "inline-flex max-w-[28rem] items-center gap-1 truncate rounded border px-1.5 py-0.5 transition-colors hover:brightness-125",

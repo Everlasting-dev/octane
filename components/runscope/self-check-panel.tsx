@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { ChevronDown, ChevronRight, CircleCheck, CircleSlash, Crosshair, LineChart, RotateCcw, ShieldAlert, TriangleAlert, Info, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -16,6 +16,7 @@ import {
   type SelfCheckConfig,
 } from "@/lib/self-check"
 import type { SelfCheckPrefs } from "@/lib/self-check-store"
+import { ResizeHandle, usePanelWidth } from "./resizable"
 
 export const SEVERITY_TONE: Record<CheckSeverity, { text: string; bg: string; border: string; fill: string; label: string }> = {
   critical: { text: "text-red-400", bg: "bg-red-500/10", border: "border-red-500/40", fill: "#f87171", label: "Critical" },
@@ -67,6 +68,27 @@ export function SelfCheckPanel({
   const [filter, setFilter] = useState<CheckSeverity | null>(null)
   const [open, setOpen] = useState<Set<string>>(new Set())
   const [showPassed, setShowPassed] = useState(false)
+  const panel = usePanelWidth("self-check", 432, 320, 960)
+  const ref = useRef<HTMLElement>(null)
+
+  // Close on a click or tap anywhere outside the panel (the header toggle and
+  // the strip chip handle themselves), and on Esc.
+  useEffect(() => {
+    function onDown(e: PointerEvent) {
+      const t = e.target as Element | null
+      if (!t || ref.current?.contains(t) || t.closest?.("[data-self-check-toggle]")) return
+      onClose()
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose()
+    }
+    document.addEventListener("pointerdown", onDown, true)
+    document.addEventListener("keydown", onKey)
+    return () => {
+      document.removeEventListener("pointerdown", onDown, true)
+      document.removeEventListener("keydown", onKey)
+    }
+  }, [onClose])
 
   const groups = useMemo(() => {
     if (!report) return []
@@ -99,16 +121,19 @@ export function SelfCheckPanel({
 
   return (
     <aside
+      ref={ref}
       className={cn(
         "octane-self-check z-[60] flex flex-col border-border bg-popover/95 shadow-2xl backdrop-blur",
         mobile
           ? "fixed inset-x-0 bottom-0 max-h-[82dvh] rounded-t-2xl border-t pb-[env(safe-area-inset-bottom,0px)]"
-          : "fixed inset-y-0 right-0 w-[27rem] max-w-[calc(100vw-3.5rem)] border-l",
+          : "fixed inset-y-0 right-0 max-w-[calc(100vw-3.5rem)] border-l",
       )}
+      style={mobile ? undefined : { width: panel.width }}
       role="dialog"
       aria-label="Self check"
       onPointerDown={(e) => e.stopPropagation()}
     >
+      {!mobile && <ResizeHandle panel={panel} label="Resize Self check panel" />}
       <div className="flex shrink-0 items-start justify-between gap-2 border-b border-border px-4 py-3">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-foreground">Self check</h3>

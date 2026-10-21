@@ -16,7 +16,7 @@ import { cn, releaseFocus } from "@/lib/utils"
 import type { Signal } from "@/lib/telemetry"
 import type { DisplaySettings } from "./display-panel"
 import type { DiffStats } from "@/lib/compare"
-import { lttb } from "@/lib/downsample"
+import { lineValueAt, renderPoints, renderRange } from "@/lib/downsample"
 import { colorForType, type Annotation } from "@/lib/annotations"
 import { decodeValue, decoderFor, describe, stepValueAt, useFlagDecoders } from "@/lib/flag-decoders"
 import { SEVERITY_FILL, type Finding } from "@/lib/self-check"
@@ -29,7 +29,7 @@ const HEIGHT_CLASS: Record<DisplaySettings["height"], string> = {
 }
 
 // Max points rendered per series. LTTB keeps the visual shape.
-const RENDER_POINTS = 700
+const RENDER_POINTS = 1400
 
 // Approx card heights so off-screen charts reserve space (content-visibility).
 const INTRINSIC: Record<DisplaySettings["height"], number> = { mini: 170, compact: 230, normal: 300, tall: 360 }
@@ -207,11 +207,14 @@ function SignalChartImpl({
 
   const shownIssues = useMemo(() => (issues ?? []).filter((f) => f.channels.includes(label)), [issues, label])
 
-  // Downsample each series, then merge onto one dataset keyed k0, k1, …
-  const { rows, keys } = useMemo(() => {
-    const reduced = series.map((s) => lttb(s.signal.data, RENDER_POINTS))
+  // Downsample the visible window of each series (full resolution once it
+  // fits), then merge onto one dataset keyed k0, k1, … The render range only
+  // changes when the window moves a quarter width or zooms past a power of 2.
+  const [r0, r1] = renderRange(domain)
+  const { rows, keys, reduced } = useMemo(() => {
+    const reduced = series.map((s) => renderPoints(s.signal.data, [r0, r1], RENDER_POINTS))
     if (reduced.length === 1) {
-      return { rows: reduced[0].map((d) => ({ t: d.t, k0: d.value })), keys: ["k0"] }
+      return { rows: reduced[0].map((d) => ({ t: d.t, k0: d.value })), keys: ["k0"], reduced }
     }
     const map = new Map<number, Record<string, number | null>>()
     reduced.forEach((data, si) => {
@@ -226,8 +229,8 @@ function SignalChartImpl({
       }
     })
     const merged = [...map.values()].sort((a, b) => (a.t as number) - (b.t as number))
-    return { rows: merged, keys: series.map((_, i) => `k${i}`) }
-  }, [series])
+    return { rows: merged, keys: series.map((_, i) => `k${i}`), reduced }
+  }, [series, r0, r1])
 
   // Cursor-time readout from full-resolution data. Interpolating keeps the dot
   // visually aligned with the vertical cursor line.
@@ -474,9 +477,12 @@ function SignalChartImpl({
     effectiveCursorT != null && span > 0 && plotW > 0 && effectiveCursorT >= domain[0] && effectiveCursorT <= domain[1]
       ? PAD_X + M_LEFT + yAxisWidth + ((effectiveCursorT - domain[0]) / span) * plotW
       : null
+  // The dot sits on the drawn line (same points, same curve); the readout
+  // text keeps the real sample value.
+  const lineY = effectiveCursorT != null && reduced[0] ? lineValueAt(reduced[0], effectiveCursorT, display.curve) : null
   const cursorY =
-    cursorX != null && cursorValue?.value != null && yDomain[1] > yDomain[0]
-      ? M_TOP + (1 - (cursorValue.value - yDomain[0]) / (yDomain[1] - yDomain[0])) * plotH
+    cursorX != null && lineY != null && yDomain[1] > yDomain[0]
+      ? M_TOP + (1 - (lineY - yDomain[0]) / (yDomain[1] - yDomain[0])) * plotH
       : null
   const cursorOverlay =
     cursorX == null ? null : (
