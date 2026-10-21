@@ -16,7 +16,7 @@ function daysLeft(expiresAt: string): { label: string; expired: boolean } {
 
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : "—")
 
-/** Owner-only: every Octane account, its 15-day license, its PCs, and Renew. */
+/** Owner-only: every Octane account, its 30-day license, its PCs, and Renew. */
 export function LicensesDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [accounts, setAccounts] = useState<LicenseAccount[]>([])
   const [loading, setLoading] = useState(false)
@@ -54,7 +54,7 @@ export function LicensesDialog({ open, onClose }: { open: boolean; onClose: () =
             <p className="text-[11px] font-semibold uppercase tracking-wider text-primary">Owner</p>
             <h3 className="mt-1 text-lg font-semibold text-foreground">Licenses</h3>
             <p className="mt-1 text-sm text-muted-foreground">
-              Each account gets 15 days from its first ever sign-in. Renew adds 15 days (from today, or from the expiry if it hasn&apos;t passed).
+              Each account gets 30 days from its first ever sign-in. Renew adds 30 days (from today, or from the expiry if it hasn&apos;t passed).
             </p>
           </div>
           <div className="flex items-center gap-1.5">
@@ -109,7 +109,7 @@ export function LicensesDialog({ open, onClose }: { open: boolean; onClose: () =
                       className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
                     >
                       {busy === a.user_id ? <Loader2 className="size-3.5 animate-spin" /> : <KeyRound className="size-3.5" />}
-                      Renew 15 days
+                      Renew 30 days
                     </button>
                   </div>
                 </div>
@@ -136,7 +136,7 @@ export function LicensesDialog({ open, onClose }: { open: boolean; onClose: () =
   )
 }
 
-/** Full-screen lock shown when a (non-owner) account's 15 days have run out. */
+/** Full-screen lock shown when a (non-owner) account's 30 days have run out. */
 export function LicenseExpiredScreen({ email, expiresAt, onSignOut, onRetry }: { email?: string; expiresAt?: number; onSignOut: () => void; onRetry: () => void }) {
   return (
     <div className="flex min-h-dvh items-center justify-center bg-background p-6 text-foreground">
@@ -146,7 +146,7 @@ export function LicenseExpiredScreen({ email, expiresAt, onSignOut, onRetry }: {
         </span>
         <h1 className="mt-4 text-xl font-semibold">License expired</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          The 15-day license for <span className="font-medium text-foreground">{email || "this account"}</span> ended
+          The 30-day license for <span className="font-medium text-foreground">{email || "this account"}</span> ended
           {expiresAt ? ` on ${new Date(expiresAt).toLocaleString()}` : ""}. Ask the Octane owner to renew it, then press Check again.
         </p>
         <div className="mt-6 flex items-center justify-center gap-2">

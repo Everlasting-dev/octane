@@ -3,9 +3,9 @@
 -- (hgwmdowavadfbctlypin) and press Run. It is safe to run again.
 --
 -- Rules it enforces (server side, clients cannot change them):
---   * An account's license starts at its FIRST EVER Octane login and lasts 15 days.
+--   * An account's license starts at its FIRST EVER Octane login and lasts 30 days.
 --     Logging out, reinstalling or deleting app data never restarts it.
---   * Only the owner can renew (+15 days each time) and see every account.
+--   * Only the owner can renew (+30 days each time) and see every account.
 --   * Every PC an account signs in on is recorded (no limit).
 --   * Owner rights match ONE exact email (no more "contains akramfariz").
 
@@ -92,7 +92,7 @@ create policy "octane machines read" on public.octane_license_machines
   using (user_id = auth.uid() or public.octane_owner());
 
 -- Called by the app after every sign-in / refresh. Creates the license on the first
--- ever call (15 days from the earliest known login) and records this PC.
+-- ever call (30 days from the earliest known login) and records this PC.
 -- p_local_first_login can only move the start EARLIER (never past "now"), so a client
 -- can shorten its own window but never extend it.
 create or replace function public.octane_license_claim(
@@ -120,7 +120,7 @@ begin
 
   start_at := greatest(u_created, least(now(), coalesce(p_local_first_login, now())));
   insert into public.octane_licenses (user_id, email, first_login_at, expires_at)
-  values (uid, u_email, start_at, start_at + interval '15 days')
+  values (uid, u_email, start_at, start_at + interval '30 days')
   on conflict (user_id) do nothing;
 
   if p_machine_id is not null and length(p_machine_id) between 16 and 128 then
@@ -144,7 +144,7 @@ begin
 end;
 $$;
 
--- Owner only: add exactly 15 days (from today, or from the expiry if it hasn't passed yet).
+-- Owner only: add exactly 30 days (from today, or from the expiry if it hasn't passed yet).
 create or replace function public.octane_license_renew(p_user uuid)
 returns json
 language plpgsql
@@ -158,7 +158,7 @@ begin
     raise exception 'owner only' using errcode = '42501';
   end if;
   update public.octane_licenses
-     set expires_at = greatest(expires_at, now()) + interval '15 days',
+     set expires_at = greatest(expires_at, now()) + interval '30 days',
          renewed_at = now(),
          renewed_by = (select email from auth.users where id = auth.uid()),
          renew_count = renew_count + 1

@@ -1537,7 +1537,7 @@ export const Dashboard = forwardRef<
                 onClick={() => setShowCloudLogs(true)}
                 title="Cloud Logs"
                 aria-label="Cloud Logs"
-                className="hidden items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-secondary lg:inline-flex"
+                className="inline-flex size-9 items-center justify-center gap-1.5 rounded-md border border-border bg-card text-sm text-foreground transition-colors hover:bg-secondary lg:size-auto lg:px-3 lg:py-1.5"
               >
                 <Cloud className="size-3.5" />
                 <span className="octane-action-label hidden xl:inline">Cloud Logs</span>

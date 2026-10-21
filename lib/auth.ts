@@ -304,3 +304,17 @@ export async function logout(): Promise<void> {
   const b = bridge()
   if (b) await b.logout()
 }
+
+/** Supabase project used by Octane (public URL + publishable key). */
+export const SUPABASE = { url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY }
+
+/** A current access token for the signed-in account (refreshed when needed), or null. */
+export async function getAccessToken(): Promise<string | null> {
+  const b = bridge()
+  if (!b) return null
+  try {
+    return await b.getAccessToken()
+  } catch {
+    return null
+  }
+}

@@ -11,7 +11,7 @@ export interface LicenseStatus {
 }
 
 const PREFIX = "octane:license:"
-const SUBSCRIPTION_MS = 15 * 24 * 60 * 60 * 1000
+const SUBSCRIPTION_MS = 30 * 24 * 60 * 60 * 1000
 
 function storageKey(email: string) {
   return `${PREFIX}${email.toLowerCase()}`

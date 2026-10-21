@@ -12,10 +12,10 @@ const { execFile } = require("node:child_process")
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://hgwmdowavadfbctlypin.supabase.co"
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "sb_publishable_wRhD8AZtNhOAXSv3k_f7Cg_5rzE11zp"
 const AUTH_GRACE_MS = 7 * 24 * 60 * 60 * 1000 // 7 days offline grace
-// License: 15 days from the account's FIRST EVER login. The server
+// License: 30 days from the account's FIRST EVER login. The server
 // (supabase/licenses.sql) is the source of truth; until that SQL is deployed the
 // app falls back to the local rule below. Logout never resets either one.
-const LICENSE_MS = 15 * 24 * 60 * 60 * 1000
+const LICENSE_MS = 30 * 24 * 60 * 60 * 1000
 const LICENSE_RECHECK_MS = 30 * 60 * 1000
 const MACHINE_SALT = "octane-license-v1"
 const ANCHOR_KEY = "HKLM\\SOFTWARE\\EverlastingDev\\Octane"
@@ -50,6 +50,49 @@ async function readSession() {
 async function writeSession(session) {
   await fs.writeFile(sessionPath(), encodeSession(session))
 }
+// --- Installer hand-over ------------------------------------------------------
+// The Slip installer signs the user in (and claims the license) before Octane
+// is installed, then leaves a one-time file with that refresh token. The first
+// start swaps it for a normal encrypted session and deletes it straight away.
+const HANDOFF_MAX_AGE_MS = 30 * 60 * 1000
+
+function handoffPath() {
+  return path.join(app.getPath("userData"), "install-handoff.json")
+}
+
+let handoffChecked = false
+async function consumeInstallHandoff() {
+  if (handoffChecked) return
+  handoffChecked = true
+  let raw
+  try {
+    raw = await fs.readFile(handoffPath(), "utf8")
+  } catch {
+    return
+  }
+  // single use, whatever happens next
+  await fs.unlink(handoffPath()).catch(() => {})
+  let handoff
+  try {
+    handoff = JSON.parse(raw.replace(/^\uFEFF/, ""))
+  } catch {
+    return
+  }
+  const age = Date.now() - Number(handoff?.created_at || 0)
+  if (!handoff?.refresh_token || !(age >= 0 && age < HANDOFF_MAX_AGE_MS)) return
+  try {
+    const previous = ensureLicenseWindow(await readSession())
+    const data = await supabaseAuthRequest("/auth/v1/token?grant_type=refresh_token", {
+      method: "POST",
+      body: JSON.stringify({ refresh_token: handoff.refresh_token }),
+    })
+    const env = await applyLicense(buildEnvelope(data, "installer", previous))
+    await writeSession(env)
+  } catch (error) {
+    console.warn("[auth] installer sign-in hand-over failed:", error instanceof Error ? error.message : error)
+  }
+}
+
 async function clearSession() {
   try {
     await fs.unlink(sessionPath())
@@ -258,7 +301,7 @@ function serverMissing(error) {
 
 /**
  * Ask the server for this account's license (creating it on the first ever
- * call) and record this PC. Falls back to the local 15-day rule if the server
+ * call) and record this PC. Falls back to the local 30-day rule if the server
  * side isn't deployed. Never throws.
  */
 async function applyLicense(env) {
@@ -340,6 +383,7 @@ async function refresh(env) {
 }
 
 async function getState() {
+  await consumeInstallHandoff()
   const raw = await readSession()
   const saved = ensureLicenseWindow(raw)
   if (!saved?.accessToken) return { authenticated: false }
@@ -382,7 +426,7 @@ async function login({ email, password }) {
 
 async function logout() {
   // Only the sign-in session is removed. license-anchor.dat (first login per
-  // account) and the server record stay, so logging out never resets the 15 days.
+  // account) and the server record stay, so logging out never resets the 30 days.
   await clearSession()
   return { authenticated: false }
 }

@@ -1,11 +1,12 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { CheckCircle2, Cloud, Download, Loader2, Pencil, RefreshCw, Search, Trash2, TriangleAlert, Upload, X } from "lucide-react"
+import { CheckCircle2, Cloud, Download, FileDown, Loader2, Pencil, RefreshCw, Search, Trash2, TriangleAlert, Upload, X } from "lucide-react"
 import { parseLog, type ParsedLog } from "@/lib/csv"
 import {
   deleteCloudLog,
   downloadCloudLog,
+  saveCloudLogFile,
   listCloudLogs,
   updateCloudLog,
   uploadCloudLog,
@@ -171,6 +172,22 @@ export function CloudLogsDialog({
     }
   }
 
+  // Save the original log file to this device (e.g. pick up a phone upload on the PC).
+  async function saveCloudFile(log: CloudLogSummary) {
+    setBusyId(log.id)
+    setError(null)
+    setNotice(null)
+    try {
+      const payload = await downloadCloudLog(log.id)
+      saveCloudLogFile(payload)
+      setNotice(`Saved ${payload.fileName} to this device.`)
+    } catch (err) {
+      setError(friendlyCloudLogError(err))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   async function saveEdit() {
     if (!editing) return
     setBusyId(editing.id)
@@ -207,9 +224,9 @@ export function CloudLogsDialog({
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/65 p-0 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
       <div
-        className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-border bg-popover text-foreground shadow-2xl"
+        className="flex max-h-[92dvh] w-full max-w-4xl flex-col overflow-hidden rounded-t-xl border border-border bg-popover pb-[env(safe-area-inset-bottom,0px)] text-foreground shadow-2xl sm:max-h-[88vh] sm:rounded-xl sm:pb-0"
         onClick={(event) => event.stopPropagation()}
       >
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-4">
@@ -431,7 +448,17 @@ export function CloudLogsDialog({
                                 className="inline-flex items-center gap-1.5 rounded-md border border-border bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
                               >
                                 {busyId === log.id ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
-                                {log.cached ? "Load cached" : `Download ${formatBytes(log.compressedSize || log.fileSize)}`}
+                                {log.cached ? "Load cached" : `Load ${formatBytes(log.compressedSize || log.fileSize)}`}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void saveCloudFile(log)}
+                                disabled={busyId === log.id}
+                                title="Download the original log file to this device"
+                                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs text-foreground hover:bg-secondary disabled:opacity-60"
+                              >
+                                <FileDown className="size-3.5" />
+                                Save .csv
                               </button>
                               <button
                                 type="button"
