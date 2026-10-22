@@ -15,12 +15,13 @@ accordingly. Version numbers therefore decrease part-way down this file.
 - **Tidy lanes** in the Analysis Plot (PC and phone): related channels share a lane and lanes stack top to bottom (RPM, speed, pedal / throttle, boost, AFR, timing / knock, pressures, trims, gear / clutch, temperatures, voltage, ethanol, flags). Channels with known ranges get a fixed scale so normal readings look calm (battery 10-16 V, ethanol 0-100 %, coolant 0-130 °C, AFR 9-16, pedal 0-100 %). Your own scaling in the Lines panel wins; Auto scale / Reset return a line to its lane. Settings -> Display -> Analysis lines switches between Tidy lanes and Overlay. The axis labels follow the focused line's lane.
 - Zoom on the plot itself: pinch with two fingers on the phone (moving them pans), double-tap / double-click to zoom in 2x at that point, mouse wheel zooms around the pointer on the PC (Shift+wheel still stretches lines). Fit shows the whole log again.
 - Templates on the phone: save the current lines as a new template, update a template with the current lines, rename and delete it (Select channels -> Templates).
+- Templates in the phone Signal Matrix: a Templates button next to the channel search loads any template (the active one is ticked), All channels or the Default set, and saves the current channels as a new template.
 - Owner: "Open from Cloud" on the start screen, next to Import CSV (PC and phone).
 - Cloud Logs: the Upload tab says when the open log is already in the library (and which entry) before you try to save it.
 
 ### Changed
 
-- Reset in the Analysis Plot keeps the lines you picked (it resets time, scaling, split and peaks). Fit only shows the whole log.
+- Reset keeps the channels you picked, in the Analysis Plot (it resets time, scaling, split and peaks) and in the Signal Matrix (time, collapsed charts, search). Fit only shows the whole log.
 - Findings are shaded in the Analysis Plot only when they involve a line on that plot.
 - Display settings are remembered between sessions.
 

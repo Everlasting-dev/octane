@@ -7,8 +7,10 @@ import {
   Cloud,
   Download,
   HelpCircle,
+  Check,
   Keyboard,
   LayoutList,
+  LayoutTemplate,
   LineChart,
   MousePointerClick,
   MoveHorizontal,
@@ -440,6 +442,7 @@ export const Dashboard = forwardRef<
   const [quickOpen, setQuickOpen] = useState(false)
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false)
   const [mobileWindowOpen, setMobileWindowOpen] = useState(false)
+  const [mobileTemplatesOpen, setMobileTemplatesOpen] = useState(false)
   const [desktopControlsOpen, setDesktopControlsOpen] = useState(true)
   const [matrixQuery, setMatrixQuery] = useState("")
   const [highlightChannel, setHighlightChannel] = useState<SignalKey | null>(null)
@@ -1136,8 +1139,8 @@ export const Dashboard = forwardRef<
     setTimeout(() => setHighlightChannel(null), 1800)
   }
 
+  // Reset keeps the channels you picked (a template or the channel list changes them).
   function resetMatrixView() {
-    if (activeLog) setHidden(defaultHidden(activeLog, mobileViewport || isMobileViewportNow()))
     resetView(duration)
     setCollapsed(new Set())
     setQuery("")
@@ -2256,8 +2259,8 @@ export const Dashboard = forwardRef<
         onClose={() => setChannelsEditOpen(false)}
       />
       {hasLogs && view === "matrix" && (
-        <div className={cn("octane-mobile-quick-search fixed inset-x-3 z-40 lg:hidden", mobileSearchActive && "is-active")}>
-          <div className="relative">
+        <div className={cn("octane-mobile-quick-search fixed inset-x-3 z-40 flex items-center gap-2 lg:hidden", mobileSearchActive && "is-active")}>
+          <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <input
               ref={mobileQuickRef}
@@ -2281,7 +2284,7 @@ export const Dashboard = forwardRef<
                   landOnChannel()
                 }
               }}
-              placeholder="Quick search channels..."
+              placeholder="Search channels..."
               className="h-10 w-full rounded-full border border-border bg-popover/95 pl-10 pr-10 text-sm text-foreground shadow-2xl backdrop-blur placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30"
             />
             {matrixQuery && (
@@ -2299,6 +2302,18 @@ export const Dashboard = forwardRef<
               </button>
             )}
           </div>
+          {!mobileSearchActive && (
+            <button
+              type="button"
+              onClick={() => setMobileTemplatesOpen(true)}
+              aria-label="Templates"
+              aria-pressed={mobileTemplatesOpen}
+              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full border border-border bg-popover/95 px-3.5 text-sm font-medium text-foreground shadow-2xl backdrop-blur"
+            >
+              <LayoutTemplate className="size-4 text-primary" />
+              Templates
+            </button>
+          )}
         </div>
       )}
       {hasLogs && view === "matrix" && (
@@ -2339,6 +2354,30 @@ export const Dashboard = forwardRef<
             Fit
           </button>
         </div>
+      )}
+      {hasLogs && view === "matrix" && mobileTemplatesOpen && activeLog && (
+        <MobileMatrixTemplates
+          templates={templates}
+          allLabels={channels.map((c) => c.label)}
+          visibleLabels={visibleChannels.map((c) => c.label)}
+          onApply={(t) => {
+            applyTemplate(t)
+            setMobileTemplatesOpen(false)
+            scrollMainToTop()
+          }}
+          onShowAll={() => {
+            setHidden(new Set())
+            setMobileTemplatesOpen(false)
+            scrollMainToTop()
+          }}
+          onDefault={() => {
+            setHidden(defaultHidden(activeLog, true))
+            setMobileTemplatesOpen(false)
+            scrollMainToTop()
+          }}
+          onSave={saveTemplate}
+          onClose={() => setMobileTemplatesOpen(false)}
+        />
       )}
       {hasLogs && view === "matrix" && mobileWindowOpen && duration > 0 && overview.length > 0 && (
         <div className="octane-mobile-window-drawer fixed inset-x-3 z-50 rounded-xl border border-border bg-popover/95 p-3 shadow-2xl backdrop-blur lg:hidden">
@@ -2705,5 +2744,132 @@ function SelfCheckButton({ report, open, onClick }: { report: CheckReport | null
         </span>
       )}
     </button>
+  )
+}
+
+/** Phone Signal Matrix: load a template (or all / the default set) and save the current set. */
+function MobileMatrixTemplates({
+  templates,
+  allLabels,
+  visibleLabels,
+  onApply,
+  onShowAll,
+  onDefault,
+  onSave,
+  onClose,
+}: {
+  templates: Template[]
+  allLabels: string[]
+  visibleLabels: string[]
+  onApply: (t: Template) => void
+  onShowAll: () => void
+  onDefault: () => void
+  onSave: (name: string) => void
+  onClose: () => void
+}) {
+  const [naming, setNaming] = useState(false)
+  const [name, setName] = useState("")
+  const [saved, setSaved] = useState<string | null>(null)
+  const visibleKey = [...visibleLabels].sort().join("\u0001")
+  const row =
+    "flex min-h-12 w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition-colors active:bg-secondary disabled:opacity-40"
+  return (
+    <div className="fixed inset-0 z-50 flex items-end bg-black/50 lg:hidden" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-label="Load a template"
+        onClick={(e) => e.stopPropagation()}
+        className="flex max-h-[78dvh] w-full flex-col rounded-t-2xl border-t border-border bg-popover pb-[env(safe-area-inset-bottom,0px)] shadow-2xl"
+      >
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">Load a template</h3>
+            <p className="text-[11px] text-muted-foreground">
+              {visibleLabels.length} of {allLabels.length} channels shown
+            </p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close templates" className="inline-flex size-10 items-center justify-center rounded-md border border-border bg-card text-muted-foreground">
+            <X className="size-5" />
+          </button>
+        </div>
+        <div className="shrink-0 border-b border-border p-2">
+          {naming ? (
+            <form
+              className="flex items-center gap-1.5"
+              onSubmit={(e) => {
+                e.preventDefault()
+                const n = name.trim()
+                if (!n) return
+                onSave(n)
+                setSaved(`Saved "${n}" with ${visibleLabels.length} channels`)
+                setNaming(false)
+                setName("")
+              }}
+            >
+              <input
+                autoFocus
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Template name"
+                aria-label="New template name"
+                className="h-10 min-w-0 flex-1 rounded-md border border-border bg-card px-2 text-base text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
+              />
+              <button type="submit" disabled={!name.trim()} className="h-10 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground disabled:opacity-50">
+                Save
+              </button>
+            </form>
+          ) : (
+            <button
+              type="button"
+              disabled={visibleLabels.length === 0}
+              onClick={() => {
+                setNaming(true)
+                setSaved(null)
+              }}
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-primary/60 bg-primary/10 text-sm font-semibold text-foreground disabled:opacity-40"
+            >
+              <Plus className="size-4" />
+              Save these {visibleLabels.length} channels as a template
+            </button>
+          )}
+          {saved && <p className="mt-1.5 text-center text-xs text-emerald-400">{saved}</p>}
+        </div>
+        <ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain p-2">
+          <li>
+            <button type="button" onClick={onShowAll} className={cn(row, "border-border bg-card")}>
+              <span className="text-sm font-semibold text-foreground">All channels</span>
+              <span className="font-mono text-xs text-muted-foreground">{allLabels.length}</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" onClick={onDefault} className={cn(row, "border-border bg-card")}>
+              <span className="text-sm font-semibold text-foreground">Default set</span>
+              <span className="text-xs text-muted-foreground">first view</span>
+            </button>
+          </li>
+          {templates.map((t) => {
+            const present = resolveTemplateLabels(t, allLabels)
+            const active = present.length > 0 && [...present].sort().join("\u0001") === visibleKey
+            return (
+              <li key={t.id}>
+                <button
+                  type="button"
+                  disabled={present.length === 0}
+                  onClick={() => onApply(t)}
+                  aria-pressed={active}
+                  className={cn(row, active ? "border-primary bg-primary/15" : "border-border bg-card")}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    {active && <Check className="size-4 shrink-0 text-primary" />}
+                    <span className="truncate text-sm font-semibold text-foreground">{t.name}</span>
+                  </span>
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground">{present.length ? `${present.length} channels` : "none in log"}</span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      </div>
+    </div>
   )
 }
