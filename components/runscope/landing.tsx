@@ -1,19 +1,45 @@
 "use client"
 
 import { useRef, useState } from "react"
-import { ArrowLeft, FileUp, GitCompare, LayoutList, Loader2, LogOut, MapPin, TriangleAlert, Upload } from "lucide-react"
+import { ArrowLeft, Cloud, FileUp, GitCompare, LayoutList, Loader2, LogOut, MapPin, TriangleAlert, Upload } from "lucide-react"
 import { parseLogFile, type ParsedLog } from "@/lib/csv"
 import { cn } from "@/lib/utils"
 import { friendlyFileError } from "@/lib/friendly-errors"
 import { OctaneLogo } from "./logo"
 import { LicenseBadge } from "./license-badge"
-import type { AuthUser } from "@/lib/auth"
+import { isOwnerUser, type AuthUser } from "@/lib/auth"
+import { CloudLogsDialog } from "./cloud-logs-dialog"
 
 const FEATURES = [
   { icon: LayoutList, title: "Channel views", text: "Move between Signal Matrix, Analysis, and preset diagnostics without changing tools." },
   { icon: GitCompare, title: "Compare runs", text: "Overlay multiple logs and read time-aligned deltas across captures." },
   { icon: MapPin, title: "Annotate", text: "Pin knock, shift and boost events to timestamps; they persist per file." },
 ]
+
+function OpenFromCloud({ onOpen }: { onOpen: (log: ParsedLog) => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+      >
+        <Cloud className="size-4" />
+        Open from Cloud
+      </button>
+      <CloudLogsDialog
+        open={open}
+        activeLog={null}
+        onClose={() => setOpen(false)}
+        onLoad={(log) => {
+          setOpen(false)
+          onOpen(log)
+        }}
+      />
+    </>
+  )
+}
 
 export function Landing({
   onOpen,
@@ -149,6 +175,8 @@ export function Landing({
                 <Upload className="size-4" />
                 Import CSV
               </button>
+              {/* owner only: the cloud library (table and bucket policies allow nobody else) */}
+              {isOwnerUser(accountUser) && <OpenFromCloud onOpen={(log) => onOpen(log)} />}
             </div>
           )}
           {error && (

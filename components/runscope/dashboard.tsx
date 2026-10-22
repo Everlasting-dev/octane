@@ -370,6 +370,25 @@ export const Dashboard = forwardRef<
     initialLog ? defaultAnalysisLabels(initialLog, isMobileViewportNow()) : new Set(),
   )
   const [display, setDisplay] = useState<DisplaySettings>(DEFAULT_DISPLAY)
+  // Display settings survive restarts (older saves are merged onto the defaults).
+  const displayLoaded = useRef(false)
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("octane:display:v1")
+      if (raw) setDisplay({ ...DEFAULT_DISPLAY, ...JSON.parse(raw) })
+    } catch {
+      /* default display */
+    }
+    displayLoaded.current = true
+  }, [])
+  useEffect(() => {
+    if (!displayLoaded.current) return
+    try {
+      window.localStorage.setItem("octane:display:v1", JSON.stringify(display))
+    } catch {
+      /* ignore */
+    }
+  }, [display])
 
   // Per-file working state, so switching logs resumes where you left off.
   const sessionsRef = useRef<Map<string, Session>>(new Map())
@@ -820,6 +839,8 @@ export const Dashboard = forwardRef<
   // Stable callbacks for the memoized charts.
   const setWindowRef = useRef(setWindow)
   setWindowRef.current = setWindow
+  // Pinch / wheel / double-tap zoom on the Analysis plot.
+  const zoomWindow = useCallback((start: number, end: number) => setWindowRef.current(start, end), [])
   // A drag-selection is a one-shot: set the window, then leave Window mode.
   const selectWindow = useCallback((start: number, end: number) => {
     setWindowRef.current(start, end)
@@ -1128,9 +1149,9 @@ export const Dashboard = forwardRef<
     scrollMainToTop()
   }
 
+  // Reset keeps the selected lines (choose a template or the channel list to change them).
   function resetAnalysisView() {
     resetView(duration)
-    if (activeLog) setAnalysisLabels(analysisDefaults(activeLog))
     // Reset scale/shift, but keep the colours and line weights the user picked.
     setAnalysisTransforms((prev) => {
       const next: Record<string, Transform> = {}
@@ -1823,6 +1844,7 @@ export const Dashboard = forwardRef<
                       windowMode={windowMode}
                       onWindowModeChange={setWindowMode}
                       onWindowSelect={selectWindow}
+                      onZoomWindow={zoomWindow}
                       maxLines={MOBILE_ANALYSIS_MAX_CHANNELS}
                       issues={plotIssues}
                       timelineSlot={
@@ -1841,6 +1863,10 @@ export const Dashboard = forwardRef<
                       }
                       templates={templates}
                       onApplyTemplate={applyTemplate}
+                      onSaveTemplate={saveTemplate}
+                      onUpdateTemplate={updateTemplate}
+                      onRenameTemplate={renameTemplate}
+                      onDeleteTemplate={deleteTemplate}
                     />
                   </div>
                 ) : view === "channels" ? (

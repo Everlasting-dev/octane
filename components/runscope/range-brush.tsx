@@ -144,11 +144,12 @@ export function RangeBrush({
         style={{ left: leftPct, width: widthPct }}
         onPointerDown={(e) => startDrag("move", e)}
       >
-        <div className="absolute inset-y-0 -left-1.5 w-3 cursor-ew-resize" onPointerDown={(e) => startDrag("left", e)}>
-          <span className="absolute left-1/2 top-1/2 h-6 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary" />
+        {/* edge handles: a finger-sized grab area on touch screens */}
+        <div className="absolute inset-y-0 -left-1.5 z-10 w-3 cursor-ew-resize touch-none pointer-coarse:-left-5 pointer-coarse:w-10" onPointerDown={(e) => startDrag("left", e)}>
+          <span className="absolute left-1/2 top-1/2 h-6 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary pointer-coarse:h-9 pointer-coarse:w-2.5 pointer-coarse:ring-2 pointer-coarse:ring-background" />
         </div>
-        <div className="absolute inset-y-0 -right-1.5 w-3 cursor-ew-resize" onPointerDown={(e) => startDrag("right", e)}>
-          <span className="absolute left-1/2 top-1/2 h-6 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary" />
+        <div className="absolute inset-y-0 -right-1.5 z-10 w-3 cursor-ew-resize touch-none pointer-coarse:-right-5 pointer-coarse:w-10" onPointerDown={(e) => startDrag("right", e)}>
+          <span className="absolute left-1/2 top-1/2 h-6 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary pointer-coarse:h-9 pointer-coarse:w-2.5 pointer-coarse:ring-2 pointer-coarse:ring-background" />
         </div>
       </div>
 

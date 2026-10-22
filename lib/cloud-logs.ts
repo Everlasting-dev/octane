@@ -300,6 +300,11 @@ const webCloudLogs: CloudLogsBridge = {
   },
 }
 
+/** sha256 of a log's text, the same fingerprint the library stores (sha256Hash). */
+export async function cloudLogHash(text: string): Promise<string> {
+  return sha256Hex(new TextEncoder().encode(text))
+}
+
 /** Save a cloud log to this device as a .csv file (PC: Downloads / save dialog). */
 export function saveCloudLogFile(log: CloudLogDownload) {
   const blob = new Blob([log.text], { type: "text/csv" })

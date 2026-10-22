@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type ReactNode, type SetStateAction } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type ReactNode, type SetStateAction } from "react"
 import { createPortal } from "react-dom"
 import {
   ChevronLeft,
@@ -14,6 +14,7 @@ import {
   MousePointerClick,
   MoveHorizontal,
   PanelRightOpen,
+  MoreHorizontal,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -46,6 +47,7 @@ import { matchesKey, useBindings } from "@/lib/keybindings"
 import { useMobileLandscapeTight, useMobileViewport } from "@/lib/viewport"
 import { colorForType, type Annotation } from "@/lib/annotations"
 import { SEVERITY_FILL, type Finding } from "@/lib/self-check"
+import { mergeStyles, stripBase, tidyLayout } from "@/lib/line-presets"
 import { ResizeHandle, usePanelWidth } from "./resizable"
 import { resolveTemplateLabels, type Template } from "@/lib/templates"
 import type { ChartSeries } from "./signal-chart"
@@ -107,6 +109,11 @@ interface CombinedChartProps {
   timelineSlot?: ReactNode
   templates?: Template[]
   onApplyTemplate?: (template: Template) => void
+  /** Phone template management (save / update with the current lines, rename, delete). */
+  onSaveTemplate?: (name: string) => void
+  onUpdateTemplate?: (id: string) => void
+  onRenameTemplate?: (id: string, name: string) => void
+  onDeleteTemplate?: (id: string) => void
   onToggleChannelLabel?: (label: string) => void
   /** Replace the plotted channel set (templates, deselect all). */
   onSetVisibleLabels?: (labels: string[]) => void
@@ -114,6 +121,8 @@ interface CombinedChartProps {
   windowMode?: boolean
   onWindowModeChange?: (enabled: boolean) => void
   onWindowSelect?: (start: number, end: number) => void
+  /** Set the time window directly (pinch / wheel / double-tap zoom on the plot). */
+  onZoomWindow?: (start: number, end: number) => void
   /** Max lines on the phone plot. */
   maxLines?: number
   /** Self check findings to shade on the plot */
@@ -315,8 +324,8 @@ function CombinedChartImpl({
   timeUnit,
   annotations,
   annotateMode,
-  transforms,
-  setTransforms,
+  transforms: userTransforms,
+  setTransforms: setUserTransforms,
   focusKey,
   setFocusKey,
   markPeaks,
@@ -335,11 +344,16 @@ function CombinedChartImpl({
   timelineSlot,
   templates = [],
   onApplyTemplate,
+  onSaveTemplate,
+  onUpdateTemplate,
+  onRenameTemplate,
+  onDeleteTemplate,
   onToggleChannelLabel,
   onSetVisibleLabels,
   windowMode = false,
   onWindowModeChange,
   onWindowSelect,
+  onZoomWindow,
   maxLines = MOBILE_ANALYSIS_MAX_CHANNELS,
   issues,
 }: CombinedChartProps) {
@@ -368,6 +382,13 @@ function CombinedChartImpl({
   const [query, setQuery] = useState("")
   const [linesOpen, setLinesOpen] = useState(false)
   const [dockTab, setDockTab] = useState<"list" | "templates">("list")
+  // phone template management
+  const [tplNaming, setTplNaming] = useState(false)
+  const [tplName, setTplName] = useState("")
+  const [tplMenu, setTplMenu] = useState<string | null>(null)
+  const [tplRename, setTplRename] = useState<{ id: string; name: string } | null>(null)
+  const [tplConfirmDelete, setTplConfirmDelete] = useState<string | null>(null)
+  const [tplNotice, setTplNotice] = useState<string | null>(null)
   const plotRef = useRef<HTMLElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const bindings = useBindings()
@@ -430,6 +451,33 @@ function CombinedChartImpl({
   const displaySeries = useMemo(
     () => displayLabels.map((l) => seriesByLabel[l]).filter((s): s is ChartSeries => Boolean(s)),
     [displayLabels, seriesByLabel],
+  )
+  // Tidy lanes: the base scaling for every line, laid out per pane (same
+  // partition as paneGroups below). The user's own scaling sits on top and
+  // only differences from this base are stored, so it keeps adapting as lines
+  // are added or removed.
+  const tidyBase = useMemo(() => {
+    if (display.analysisLayout === "overlay") return {}
+    let panes: ChartSeries[][]
+    if (presetGroups) panes = presetGroups.map((g) => g.series)
+    else if (analysisTab === "groups" && !mobilePlot)
+      panes = groups.map((g) => g.labels.map((l) => seriesByLabel[l]).filter((s): s is ChartSeries => Boolean(s)))
+    else if (analysisTab === "standard" && split && !mobilePlot)
+      panes = [0, 1].map((p) => series.filter((s) => (plotAssign[s.signal.label] ?? 0) === p))
+    else panes = [series]
+    return tidyLayout(panes.map((p) => p.map((s) => s.signal)))
+  }, [display.analysisLayout, presetGroups, analysisTab, mobilePlot, groups, seriesByLabel, split, series, plotAssign])
+  const transforms = useMemo(() => mergeStyles(tidyBase, userTransforms), [tidyBase, userTransforms])
+  const tidyRef = useRef(tidyBase)
+  tidyRef.current = tidyBase
+  const setTransforms = useCallback<Dispatch<SetStateAction<Record<string, Transform>>>>(
+    (update) =>
+      setUserTransforms((prev) => {
+        const base = tidyRef.current
+        const next = typeof update === "function" ? update(mergeStyles(base, prev)) : update
+        return stripBase(base, next)
+      }),
+    [setUserTransforms],
   )
   // Every drawn line gets a unique colour; lines keep their colour while others toggle.
   const colorPrevRef = useRef<Record<string, string>>({})
@@ -937,8 +985,8 @@ function CombinedChartImpl({
             <button
               type="button"
               onClick={onFitWindow}
-              title="Fit full time window"
-              aria-label="Fit full time window"
+              title="Fit: show the whole log (lines and scaling stay as they are)"
+              aria-label="Fit: show the whole log"
               className={toolbarButtonClass()}
             >
               <ScanSearch className="size-3.5" />
@@ -949,8 +997,8 @@ function CombinedChartImpl({
             <button
               type="button"
               onClick={resetPlotSurface}
-              title="Reset plot"
-              aria-label="Reset plot"
+              title="Reset: whole log, tidy scaling, no split or peaks (your selected lines stay)"
+              aria-label="Reset plot scaling and time range"
               className={toolbarButtonClass()}
             >
               <RefreshCw className="size-3.5" />
@@ -1080,6 +1128,7 @@ function CombinedChartImpl({
                 windowMode={windowMode}
                 onWindowSelect={onWindowSelect}
                 onWindowReset={onFitWindow}
+                onZoomWindow={onZoomWindow}
               />
             ))
           ) : (
@@ -1179,31 +1228,169 @@ function CombinedChartImpl({
               </div>
             )}
             {mobilePlot && dockTab === "templates" && templates.length > 0 && onSetVisibleLabels ? (
-              <ul className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
-                {templates.map((template) => {
-                  const present = resolveTemplateLabels(template, allSeries.map((s) => s.signal.label))
-                  return (
-                    <li key={template.id}>
+              <div className="flex min-h-0 flex-1 flex-col">
+                {onSaveTemplate && (
+                  <div className="shrink-0 border-b border-border p-2">
+                    {tplNaming ? (
+                      <form
+                        className="flex items-center gap-1.5"
+                        onSubmit={(e) => {
+                          e.preventDefault()
+                          const name = tplName.trim()
+                          if (!name) return
+                          onSaveTemplate(name)
+                          setTplNotice(`Saved "${name}" with ${series.length} lines`)
+                          setTplNaming(false)
+                          setTplName("")
+                        }}
+                      >
+                        <input
+                          autoFocus
+                          value={tplName}
+                          onChange={(e) => setTplName(e.target.value)}
+                          placeholder="Template name"
+                          aria-label="New template name"
+                          className="h-10 min-w-0 flex-1 rounded-md border border-border bg-card px-2 text-base text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
+                        />
+                        <button type="submit" disabled={!tplName.trim()} className="h-10 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground disabled:opacity-50">
+                          Save
+                        </button>
+                        <button type="button" onClick={() => setTplNaming(false)} aria-label="Cancel" className="inline-flex size-10 items-center justify-center rounded-md border border-border bg-card text-muted-foreground">
+                          <X className="size-4" />
+                        </button>
+                      </form>
+                    ) : (
                       <button
                         type="button"
-                        disabled={present.length === 0}
+                        disabled={series.length === 0}
                         onClick={() => {
-                          onSetVisibleLabels(present)
-                          setFocusKey(null)
-                          setDockTab("list")
-                          setDockOpen(false)
+                          setTplNaming(true)
+                          setTplNotice(null)
                         }}
-                        className="mb-1.5 flex min-h-12 w-full items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2 text-left transition-colors hover:bg-secondary active:bg-secondary disabled:opacity-40"
+                        className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-primary/60 bg-primary/10 text-sm font-semibold text-foreground disabled:opacity-40"
                       >
-                        <span className="min-w-0 truncate text-sm font-semibold text-foreground">{template.name}</span>
-                        <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                          {present.length ? `${Math.min(present.length, maxLines)} lines` : "none in log"}
-                        </span>
+                        <Plus className="size-4" />
+                        Save these {series.length} lines as a template
                       </button>
-                    </li>
-                  )
-                })}
-              </ul>
+                    )}
+                    {tplNotice && <p className="mt-1.5 text-center text-xs text-emerald-400">{tplNotice}</p>}
+                  </div>
+                )}
+                <ul className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
+                  {templates.map((template) => {
+                    const present = resolveTemplateLabels(template, allSeries.map((s) => s.signal.label))
+                    const menuOpen = tplMenu === template.id
+                    return (
+                      <li key={template.id} className="mb-1.5">
+                        <div className="flex items-stretch gap-1.5">
+                          {tplRename?.id === template.id ? (
+                            <form
+                              className="flex min-w-0 flex-1 items-center gap-1.5"
+                              onSubmit={(e) => {
+                                e.preventDefault()
+                                const name = tplRename.name.trim()
+                                if (name && onRenameTemplate) onRenameTemplate(template.id, name)
+                                setTplRename(null)
+                                setTplMenu(null)
+                              }}
+                            >
+                              <input
+                                autoFocus
+                                value={tplRename.name}
+                                onChange={(e) => setTplRename({ id: template.id, name: e.target.value })}
+                                aria-label="Template name"
+                                className="h-12 min-w-0 flex-1 rounded-lg border border-border bg-card px-2 text-base text-foreground focus:border-ring focus:outline-none"
+                              />
+                              <button type="submit" className="h-12 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground">
+                                OK
+                              </button>
+                            </form>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={present.length === 0}
+                              onClick={() => {
+                                onSetVisibleLabels(present)
+                                setFocusKey(null)
+                                setDockTab("list")
+                                setDockOpen(false)
+                              }}
+                              className="flex min-h-12 min-w-0 flex-1 items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2 text-left transition-colors hover:bg-secondary active:bg-secondary disabled:opacity-40"
+                            >
+                              <span className="min-w-0 truncate text-sm font-semibold text-foreground">{template.name}</span>
+                              <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                                {present.length ? `${Math.min(present.length, maxLines)} lines` : "none in log"}
+                              </span>
+                            </button>
+                          )}
+                          {(onUpdateTemplate || onRenameTemplate || onDeleteTemplate) && tplRename?.id !== template.id && (
+                            <button
+                              type="button"
+                              aria-label={`Edit ${template.name}`}
+                              aria-expanded={menuOpen}
+                              onClick={() => {
+                                setTplMenu(menuOpen ? null : template.id)
+                                setTplConfirmDelete(null)
+                              }}
+                              className={cn(
+                                "inline-flex w-12 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground",
+                                menuOpen ? "bg-secondary text-foreground" : "bg-card",
+                              )}
+                            >
+                              <MoreHorizontal className="size-5" />
+                            </button>
+                          )}
+                        </div>
+                        {menuOpen && tplRename?.id !== template.id && (
+                          <div className="mt-1 grid grid-cols-3 gap-1.5">
+                            {onUpdateTemplate && (
+                              <button
+                                type="button"
+                                disabled={series.length === 0}
+                                onClick={() => {
+                                  onUpdateTemplate(template.id)
+                                  setTplNotice(`"${template.name}" now has these ${series.length} lines`)
+                                  setTplMenu(null)
+                                }}
+                                className="h-10 rounded-md border border-border bg-card text-xs font-medium text-foreground disabled:opacity-40"
+                              >
+                                Use current lines
+                              </button>
+                            )}
+                            {onRenameTemplate && (
+                              <button
+                                type="button"
+                                onClick={() => setTplRename({ id: template.id, name: template.name })}
+                                className="h-10 rounded-md border border-border bg-card text-xs font-medium text-foreground"
+                              >
+                                Rename
+                              </button>
+                            )}
+                            {onDeleteTemplate && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (tplConfirmDelete === template.id) {
+                                    onDeleteTemplate(template.id)
+                                    setTplMenu(null)
+                                    setTplConfirmDelete(null)
+                                  } else setTplConfirmDelete(template.id)
+                                }}
+                                className={cn(
+                                  "h-10 rounded-md border text-xs font-medium",
+                                  tplConfirmDelete === template.id ? "border-destructive bg-destructive/15 text-destructive" : "border-border bg-card text-foreground",
+                                )}
+                              >
+                                {tplConfirmDelete === template.id ? "Tap to delete" : "Delete"}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
             ) : (
               <>
                 {(mobilePlot || searchOpen) && (
@@ -1649,6 +1836,7 @@ function AnalysisPane({
   windowMode,
   onWindowSelect,
   onWindowReset,
+  onZoomWindow,
 }: {
   paneTitle: string
   paneSeries: ChartSeries[]
@@ -1684,6 +1872,7 @@ function AnalysisPane({
   windowMode: boolean
   onWindowSelect?: (start: number, end: number) => void
   onWindowReset?: () => void
+  onZoomWindow?: (start: number, end: number) => void
 }) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const winRef = useRef<{ startX: number; t0: number; moved: boolean } | null>(null)
@@ -1696,6 +1885,12 @@ function AnalysisPane({
   gainRef.current = onApplyGain
 
   const tf = (label: string): Transform => transforms[label] ?? { gain: 1, offset: 0 }
+  // Only shade findings that involve a line drawn in this pane.
+  const paneLabelKey = paneSeries.map((s) => s.signal.label).join("")
+  const paneIssues = useMemo(() => {
+    const labels = new Set(paneLabelKey.split(""))
+    return (shownIssues ?? []).filter((f) => f.channels.some((c) => labels.has(c)))
+  }, [shownIssues, paneLabelKey])
 
   // Downsample the visible window per series (full resolution once it fits);
   // re-normalise cheaply when a scale range changes. The render range only
@@ -1745,9 +1940,16 @@ function AnalysisPane({
     const el = wrapRef.current
     if (!el) return
     function onWheel(e: WheelEvent) {
-      if (!e.shiftKey) return
+      if (e.shiftKey) {
+        e.preventDefault()
+        gainRef.current(e.deltaY < 0 ? 1.12 : 1 / 1.12)
+        return
+      }
+      if (e.ctrlKey || !zoomRef.current.onZoom) return
       e.preventDefault()
-      gainRef.current(e.deltaY < 0 ? 1.12 : 1 / 1.12)
+      // trackpad sideways = pan, wheel / vertical = zoom around the pointer
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) zoomRef.current.pan(e.deltaX)
+      else zoomRef.current.zoomAt(e.clientX, Math.pow(1.0015, e.deltaY))
     }
     el.addEventListener("wheel", onWheel, { passive: false })
     return () => el.removeEventListener("wheel", onWheel)
@@ -1765,6 +1967,64 @@ function AnalysisPane({
   }
   function usableH() {
     return Math.max(1, (wrapRef.current?.getBoundingClientRect().height ?? 300) - AXIS_H - PLOT_TOP)
+  }
+
+  // --- time zoom on the plot itself ----------------------------------------
+  // Pinch (two fingers) zooms around the fingers and pans as they move,
+  // double-tap / double-click zooms in 2x at that point, the mouse wheel zooms
+  // around the pointer. Fit (toolbar) goes back to the whole log.
+  function plotFrac(clientX: number) {
+    const el = wrapRef.current!
+    const r = el.getBoundingClientRect()
+    const cs = window.getComputedStyle(el)
+    const left = (parseFloat(cs.paddingLeft) || 0) + (readoutMode === "none" ? LEFT : 12) + 4
+    const w = Math.max(1, r.width - left - RIGHT - (parseFloat(cs.paddingRight) || 0))
+    return clamp((clientX - r.left - left) / w, 0, 1)
+  }
+  function zoomAt(clientX: number, factor: number) {
+    if (!onZoomWindow) return
+    const f = plotFrac(clientX)
+    const width = domain[1] - domain[0]
+    const t = domain[0] + f * width
+    const next = width * factor
+    onZoomWindow(t - f * next, t - f * next + next)
+  }
+  function pan(dx: number) {
+    if (!onZoomWindow) return
+    const r = wrapRef.current!.getBoundingClientRect()
+    const width = domain[1] - domain[0]
+    const shift = (dx / Math.max(1, r.width)) * width
+    onZoomWindow(domain[0] + shift, domain[1] + shift)
+  }
+  const zoomRef = useRef({ onZoom: onZoomWindow, zoomAt, pan })
+  zoomRef.current = { onZoom: onZoomWindow, zoomAt, pan }
+  const touchPoints = useRef(new Map<number, number>())
+  const pinchRef = useRef<{ d0: number; tCenter: number; dom: [number, number] } | null>(null)
+  const lastTapRef = useRef<{ at: number; x: number } | null>(null)
+  const lastTouchAt = useRef(0)
+
+  /** Second finger down: switch from cursor dragging to pinch zoom. */
+  function startPinch() {
+    const xs = [...touchPoints.current.values()]
+    if (xs.length < 2 || !onZoomWindow) return false
+    dragRef.current = null
+    winRef.current = null
+    clickRef.current = null
+    offsetDragRef.current = null
+    setWinSel(null)
+    const c = (xs[0] + xs[1]) / 2
+    pinchRef.current = { d0: Math.max(8, Math.abs(xs[1] - xs[0])), tCenter: domain[0] + plotFrac(c) * (domain[1] - domain[0]), dom: domain }
+    return true
+  }
+  function movePinch() {
+    const p = pinchRef.current
+    const xs = [...touchPoints.current.values()]
+    if (!p || xs.length < 2 || !onZoomWindow) return
+    const d = Math.max(8, Math.abs(xs[1] - xs[0]))
+    const width = ((p.dom[1] - p.dom[0]) * p.d0) / d
+    // keep the time that was under the fingers under their midpoint
+    const start = p.tCenter - plotFrac((xs[0] + xs[1]) / 2) * width
+    onZoomWindow(start, start + width)
   }
 
   function markNearest(clientX: number, clientY: number) {
@@ -1791,6 +2051,14 @@ function AnalysisPane({
   function onPointerDown(e: React.PointerEvent) {
     if (!wrapRef.current) return
     releaseFocus()
+    if (e.pointerType === "touch") {
+      lastTouchAt.current = Date.now()
+      touchPoints.current.set(e.pointerId, e.clientX)
+      if (touchPoints.current.size >= 2) {
+        wrapRef.current.setPointerCapture(e.pointerId)
+        if (startPinch()) return
+      }
+    }
     if (e.shiftKey) {
       e.preventDefault()
       offsetDragRef.current = { startY: e.clientY }
@@ -1815,6 +2083,12 @@ function AnalysisPane({
     onCursorChange(pointerToT(e.clientX))
   }
   function onPointerMove(e: React.PointerEvent) {
+    if (touchPoints.current.has(e.pointerId)) touchPoints.current.set(e.pointerId, e.clientX)
+    if (pinchRef.current) {
+      e.preventDefault()
+      movePinch()
+      return
+    }
     if (winRef.current) {
       e.preventDefault()
       if (Math.abs(e.clientX - winRef.current.startX) >= WINDOW_DRAG_PX) winRef.current.moved = true
@@ -1839,6 +2113,24 @@ function AnalysisPane({
     }
   }
   function onPointerUp(e: React.PointerEvent) {
+    const wasTouch = touchPoints.current.delete(e.pointerId)
+    if (pinchRef.current) {
+      // the gesture ends when fewer than two fingers remain
+      if (touchPoints.current.size < 2) pinchRef.current = null
+      return
+    }
+    // double-tap on touch zooms in 2x around the tap
+    if (wasTouch && onZoomWindow && !windowMode && !annotateMode && !markPeaks && !dragRef.current?.moved) {
+      const now = Date.now()
+      const last = lastTapRef.current
+      if (last && now - last.at < 320 && Math.abs(last.x - e.clientX) < 32) {
+        lastTapRef.current = null
+        dragRef.current = null
+        zoomAt(e.clientX, 0.5)
+        return
+      }
+      lastTapRef.current = { at: now, x: e.clientX }
+    }
     if (winRef.current) {
       const w = winRef.current
       winRef.current = null
@@ -1864,6 +2156,8 @@ function AnalysisPane({
     dragRef.current = null
   }
   function onPointerCancel() {
+    touchPoints.current.clear()
+    pinchRef.current = null
     winRef.current = null
     setWinSel(null)
     offsetDragRef.current = null
@@ -1879,9 +2173,20 @@ function AnalysisPane({
   // Real-units Y axis for the pane's axis channel.
   const axisSig = axisLabel ? seriesByLabel[axisLabel] : null
   const axisColor = axisLabel ? colorOf[axisLabel] : "var(--muted-foreground)"
+  // Y ticks for the axis line: inside its lane only (a lane-scaled line has no
+  // meaning outside it); full height for a full-height line.
+  const axisTicks = (() => {
+    if (!axisSig) return [0, 0.25, 0.5, 0.75, 1]
+    const t = tf(axisLabel!)
+    const lo = clamp(0.5 - t.gain / 2 + t.offset, 0, 1)
+    const hi = clamp(0.5 + t.gain / 2 + t.offset, 0, 1)
+    if (hi - lo > 0.9) return [0, 0.25, 0.5, 0.75, 1]
+    return [lo, (lo + hi) / 2, hi].map((v) => +v.toFixed(4))
+  })()
   function realAt(y: number): string {
     if (!axisSig) return ""
-    const real = realFromDisplay(y, rangeOf[axisLabel!] ?? lineRange(axisSig.signal), tf(axisLabel!))
+    const raw = realFromDisplay(y, rangeOf[axisLabel!] ?? lineRange(axisSig.signal), tf(axisLabel!))
+    const real = Math.abs(raw) < 1e-9 ? 0 : raw
     return fmt(real, Math.abs(real) >= 100 ? 0 : axisSig.signal.decimals <= 1 ? 1 : 2)
   }
 
@@ -1970,13 +2275,13 @@ function AnalysisPane({
             width={readoutMode === "none" ? LEFT : 12}
             domain={[0, 1]}
             allowDataOverflow
-            ticks={[0, 0.25, 0.5, 0.75, 1]}
+            ticks={axisTicks}
             tickLine={false}
             axisLine={false}
             tick={readoutMode === "none" && axisSig ? { fill: axisColor, fontSize: 10 } : false}
             tickFormatter={readoutMode === "none" && axisSig ? realAt : undefined}
           />
-          {(shownIssues ?? []).map((f) => (
+          {paneIssues.map((f) => (
             <ReferenceArea
               key={f.id}
               x1={f.start}
@@ -2054,7 +2359,7 @@ function AnalysisPane({
       </ResponsiveContainer>
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- activeSet/tf/realAt are captured through activeKey/transforms/rangeOf
-    [rows, keys, paneSeries, display, domain, readoutMode, axisSig, axisColor, axisLabel, timeUnit, shownAnnotations, shownIssues, colorOf, transforms, activeKey, hasActive, winSel, peak, peakDispY, rangeOf],
+    [rows, keys, paneSeries, display, domain, readoutMode, axisSig, axisColor, axisLabel, timeUnit, shownAnnotations, paneIssues, colorOf, transforms, activeKey, hasActive, winSel, peak, peakDispY, rangeOf],
   )
 
   const yAxisW = readoutMode === "none" ? LEFT : 12
@@ -2087,7 +2392,11 @@ function AnalysisPane({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
-      onDoubleClick={windowMode ? () => onWindowReset?.() : undefined}
+      onDoubleClick={(e) => {
+        if (windowMode) onWindowReset?.()
+        // touch double-taps are handled in onPointerUp; skip the browser's synthetic dblclick
+        else if (!annotateMode && !markPeaks && Date.now() - lastTouchAt.current > 800) zoomAt(e.clientX, 0.5)
+      }}
       className={cn(
         "octane-analysis-pane relative w-full touch-none select-none px-2",
         heightClass,

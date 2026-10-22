@@ -11,6 +11,8 @@ export interface DisplaySettings {
   showGrid: boolean
   height: ChartHeight
   focusDim: boolean
+  /** Analysis Plot: related channels in stacked lanes, or every line full height */
+  analysisLayout: "lanes" | "overlay"
 }
 
 export const DEFAULT_DISPLAY: DisplaySettings = {
@@ -19,6 +21,7 @@ export const DEFAULT_DISPLAY: DisplaySettings = {
   showGrid: true,
   height: "mini",
   focusDim: true,
+  analysisLayout: "lanes",
 }
 
 interface DisplayPanelProps {
@@ -157,6 +160,17 @@ export function DisplayPanel({ settings, onChange, onReset }: DisplayPanelProps)
             { label: "Smooth", value: "monotone" },
             { label: "Linear", value: "linear" },
             { label: "Step", value: "step" },
+          ]}
+        />
+      </Field>
+
+      <Field label="Analysis lines" value={settings.analysisLayout === "lanes" ? "related channels share a lane" : "every line full height"}>
+        <Segmented
+          value={settings.analysisLayout}
+          onChange={(v) => set("analysisLayout", v)}
+          options={[
+            { label: "Tidy lanes", value: "lanes" },
+            { label: "Overlay", value: "overlay" },
           ]}
         />
       </Field>

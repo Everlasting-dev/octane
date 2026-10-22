@@ -5,6 +5,7 @@ import { CheckCircle2, Cloud, Download, FileDown, Loader2, Pencil, RefreshCw, Se
 import { parseLog, type ParsedLog } from "@/lib/csv"
 import {
   deleteCloudLog,
+  cloudLogHash,
   downloadCloudLog,
   saveCloudLogFile,
   listCloudLogs,
@@ -67,6 +68,21 @@ export function CloudLogsDialog({
   onClose: () => void
   onLoad: (log: ParsedLog) => void
 }) {
+  // Fingerprint of the open log, to spot it in the library before uploading.
+  const [openHash, setOpenHash] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    setOpenHash(null)
+    const text = open ? activeLog?.sourceText : undefined
+    if (text) {
+      cloudLogHash(text)
+        .then((h) => live && setOpenHash(h))
+        .catch(() => undefined)
+    }
+    return () => {
+      live = false
+    }
+  }, [open, activeLog])
   const [mode, setMode] = useState<Mode>("library")
   const [logs, setLogs] = useState<CloudLogSummary[]>([])
   const [query, setQuery] = useState("")
@@ -79,7 +95,8 @@ export function CloudLogsDialog({
   const [editing, setEditing] = useState<{ id: string; customName: string; comment: string } | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<CloudLogSummary | null>(null)
 
-  const canUpload = !!activeLog?.sourceText
+  const duplicate = openHash ? logs.find((log) => log.sha256Hash === openHash) ?? null : null
+  const canUpload = !!activeLog?.sourceText && !duplicate
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -359,7 +376,16 @@ export function CloudLogsDialog({
                   className="resize-none rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30"
                 />
               </label>
-              {!canUpload && (
+              {duplicate && (
+                <p className="mt-3 flex items-start gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
+                  <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+                  <span>
+                    This log is already in the cloud library as <span className="font-semibold text-foreground">{duplicate.customName || duplicate.displayFileName}</span>
+                    {duplicate.uploadedAt ? ` (saved ${formatDate(duplicate.uploadedAt)})` : ""}. Nothing to upload.
+                  </span>
+                </p>
+              )}
+              {!canUpload && !duplicate && (
                 <p className="mt-3 rounded-lg border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
                   Reopen the original CSV/TXT before uploading. Logs loaded before this feature may not have their original file text attached.
                 </p>

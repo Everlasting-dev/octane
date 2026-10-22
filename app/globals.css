@@ -623,11 +623,11 @@
     max-height: min(70dvh, 24rem);
   }
 
+  /* Below the plot, in its own space: it used to float over the bottom of the lines. */
   .mobile-analysis-mode .octane-analysis-timeline {
-    position: absolute;
-    left: max(0.5rem, calc(var(--octane-safe-side) + 0.5rem));
-    right: max(0.5rem, calc(var(--octane-safe-side) + 0.5rem));
-    bottom: max(0.35rem, calc(var(--octane-safe-bottom) + 0.25rem));
+    position: relative;
+    flex: 0 0 auto;
+    margin: 0.25rem max(0.5rem, calc(var(--octane-safe-side) + 0.5rem)) max(0.35rem, calc(var(--octane-safe-bottom) + 0.25rem));
     z-index: 25;
     border: 1px solid var(--border);
     border-radius: 0.5rem;
@@ -759,6 +759,11 @@
     min-height: calc(100dvh - 2.6rem);
   }
 
+  /* leave room for the range bar below the plot (it no longer overlays it) */
+  .mobile-analysis-mode .octane-analysis-plot[data-has-timeline="true"][data-panes="1"] .octane-analysis-pane {
+    min-height: calc(100dvh - 2.6rem - 3.6rem - var(--octane-safe-bottom));
+  }
+
   .mobile-analysis-mode .octane-analysis-dock {
     left: auto;
     top: max(2.65rem, calc(var(--octane-safe-top) + 2.65rem));
@@ -769,7 +774,7 @@
   }
 
   .mobile-analysis-mode .octane-analysis-timeline {
-    bottom: max(0.25rem, calc(var(--octane-safe-bottom) + 0.25rem));
+    margin-bottom: max(0.25rem, calc(var(--octane-safe-bottom) + 0.25rem));
   }
 }
 
