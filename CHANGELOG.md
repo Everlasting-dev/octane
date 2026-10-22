@@ -8,7 +8,7 @@ published as GitHub releases or tags, and the only public release is the
 current `0.9.x` line. Their entries are kept below for history and are marked
 accordingly. Version numbers therefore decrease part-way down this file.
 
-## Unreleased
+## v0.9.10 - 2026-10-22
 
 ### Added
 
