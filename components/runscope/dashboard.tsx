@@ -803,10 +803,22 @@ export const Dashboard = forwardRef<
     setDomain([Math.max(0, +start.toFixed(2)), Math.min(duration, +end.toFixed(2))])
   }
 
-  function setWindow(start: number, end: number) {
+  /** Set the time window; returns the window actually applied. */
+  function setWindow(start: number, end: number): [number, number] | undefined {
     const minWidth = duration / (MAX_ZOOM / 100)
-    let s = Math.max(0, start)
-    let e = Math.min(duration, end)
+    // Past an edge, slide the window back inside instead of cutting it short,
+    // so zooming out near the start or end of the log keeps widening it.
+    const width = Math.min(duration, end - start)
+    let s = start
+    let e = end
+    if (s < 0) {
+      s = 0
+      e = width
+    }
+    if (e > duration) {
+      e = duration
+      s = Math.max(0, duration - width)
+    }
     if (e - s < minWidth) {
       const mid = (s + e) / 2
       s = Math.max(0, mid - minWidth / 2)
@@ -817,6 +829,7 @@ export const Dashboard = forwardRef<
     if (e <= s) return
     setDomain([s, e])
     setZoom(Math.round((duration / (e - s)) * 100))
+    return [s, e]
   }
 
   // Keyboard time zoom: keeps the cursor (if inside the window) where it is on screen.

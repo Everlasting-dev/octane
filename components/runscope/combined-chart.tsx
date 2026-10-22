@@ -121,8 +121,8 @@ interface CombinedChartProps {
   windowMode?: boolean
   onWindowModeChange?: (enabled: boolean) => void
   onWindowSelect?: (start: number, end: number) => void
-  /** Set the time window directly (pinch / wheel / double-tap zoom on the plot). */
-  onZoomWindow?: (start: number, end: number) => void
+  /** Set the time window directly (pinch / wheel / double-tap zoom on the plot); returns the window applied. */
+  onZoomWindow?: (start: number, end: number) => [number, number] | void
   /** Max lines on the phone plot. */
   maxLines?: number
   /** Self check findings to shade on the plot */
@@ -1872,7 +1872,7 @@ function AnalysisPane({
   windowMode: boolean
   onWindowSelect?: (start: number, end: number) => void
   onWindowReset?: () => void
-  onZoomWindow?: (start: number, end: number) => void
+  onZoomWindow?: (start: number, end: number) => [number, number] | void
 }) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const winRef = useRef<{ startX: number; t0: number; moved: boolean } | null>(null)
@@ -1945,11 +1945,17 @@ function AnalysisPane({
         gainRef.current(e.deltaY < 0 ? 1.12 : 1 / 1.12)
         return
       }
-      if (e.ctrlKey || !zoomRef.current.onZoom) return
+      if (!zoomRef.current.onZoom) return
       e.preventDefault()
-      // trackpad sideways = pan, wheel / vertical = zoom around the pointer
-      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) zoomRef.current.pan(e.deltaX)
-      else zoomRef.current.zoomAt(e.clientX, Math.pow(1.0015, e.deltaY))
+      // line / page scroll units -> pixels, so every mouse zooms at the same rate
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el!.clientHeight : 1
+      const dx = e.deltaX * unit
+      const dy = e.deltaY * unit
+      // precision touchpad pinch arrives as ctrl+wheel with small deltas
+      if (e.ctrlKey) zoomRef.current.zoomAt(e.clientX, Math.pow(1.01, dy))
+      // touchpad sideways = pan, wheel / vertical = zoom around the pointer
+      else if (Math.abs(dx) > Math.abs(dy)) zoomRef.current.pan(dx)
+      else zoomRef.current.zoomAt(e.clientX, Math.pow(1.0015, dy))
     }
     el.addEventListener("wheel", onWheel, { passive: false })
     return () => el.removeEventListener("wheel", onWheel)
@@ -1981,20 +1987,34 @@ function AnalysisPane({
     const w = Math.max(1, r.width - left - RIGHT - (parseFloat(cs.paddingRight) || 0))
     return clamp((clientX - r.left - left) / w, 0, 1)
   }
+  // The window most recently asked for. A precision touchpad or smooth-scroll
+  // mouse sends many small wheel events between two renders; working from the
+  // rendered `domain` made them overwrite each other instead of adding up.
+  const liveDomain = useRef(domain)
+  useEffect(() => {
+    liveDomain.current = domain
+  }, [domain])
+  function applyWindow(start: number, end: number) {
+    if (!onZoomWindow) return
+    const applied = onZoomWindow(start, end)
+    liveDomain.current = Array.isArray(applied) ? applied : [start, end]
+  }
   function zoomAt(clientX: number, factor: number) {
     if (!onZoomWindow) return
+    const d = liveDomain.current
     const f = plotFrac(clientX)
-    const width = domain[1] - domain[0]
-    const t = domain[0] + f * width
+    const width = d[1] - d[0]
+    const t = d[0] + f * width
     const next = width * factor
-    onZoomWindow(t - f * next, t - f * next + next)
+    applyWindow(t - f * next, t - f * next + next)
   }
   function pan(dx: number) {
     if (!onZoomWindow) return
+    const d = liveDomain.current
     const r = wrapRef.current!.getBoundingClientRect()
-    const width = domain[1] - domain[0]
+    const width = d[1] - d[0]
     const shift = (dx / Math.max(1, r.width)) * width
-    onZoomWindow(domain[0] + shift, domain[1] + shift)
+    applyWindow(d[0] + shift, d[1] + shift)
   }
   const zoomRef = useRef({ onZoom: onZoomWindow, zoomAt, pan })
   zoomRef.current = { onZoom: onZoomWindow, zoomAt, pan }
@@ -2024,7 +2044,7 @@ function AnalysisPane({
     const width = ((p.dom[1] - p.dom[0]) * p.d0) / d
     // keep the time that was under the fingers under their midpoint
     const start = p.tCenter - plotFrac((xs[0] + xs[1]) / 2) * width
-    onZoomWindow(start, start + width)
+    applyWindow(start, start + width)
   }
 
   function markNearest(clientX: number, clientY: number) {

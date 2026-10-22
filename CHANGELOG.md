@@ -8,6 +8,14 @@ published as GitHub releases or tags, and the only public release is the
 current `0.9.x` line. Their entries are kept below for history and are marked
 accordingly. Version numbers therefore decrease part-way down this file.
 
+## Unreleased
+
+### Fixed
+
+- Scroll zoom in the Analysis Plot on laptops: a precision touchpad or smooth-scrolling mouse sends many small scroll steps between two redraws, and each one started from the last drawn window, so they overwrote each other and the zoom hardly moved. Steps now add up (40 small steps zoom as far as one big one).
+- Touchpad pinch (two fingers) zooms the Analysis Plot.
+- Zooming out near the start or end of the log keeps widening the window (it used to be cut short at the edge).
+
 ## v0.9.10 - 2026-10-22
 
 ### Added
