@@ -2214,8 +2214,10 @@ function AnalysisPane({
   function realAt(y: number): string {
     if (!axisSig) return ""
     const raw = realFromDisplay(y, rangeOf[axisLabel!] ?? lineRange(axisSig.signal), tf(axisLabel!))
-    const real = Math.abs(raw) < 1e-9 ? 0 : raw
-    return fmt(real, Math.abs(real) >= 100 ? 0 : axisSig.signal.decimals <= 1 ? 1 : 2)
+    const digits = Math.abs(raw) >= 100 ? 0 : axisSig.signal.decimals <= 1 ? 1 : 2
+    // anything that rounds to zero at this precision is 0, never "-0.0"
+    const real = Math.abs(raw) < 0.5 * Math.pow(10, -digits) ? 0 : raw
+    return fmt(real, digits)
   }
 
   const peakDispY = peak ? clamp(applyStyle(peak.norm, tf(peak.label)) ?? peak.norm, 0, 1) : 0
