@@ -1,5 +1,6 @@
 "use client"
 
+import { HelpTip } from "./help-tip"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { ChevronDown, ChevronRight, CircleCheck, CircleSlash, Crosshair, LineChart, RotateCcw, ShieldAlert, TriangleAlert, Info, X } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -136,7 +137,12 @@ export function SelfCheckPanel({
       {!mobile && <ResizeHandle panel={panel} label="Resize Self check panel" />}
       <div className="flex shrink-0 items-start justify-between gap-2 border-b border-border px-4 py-3">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-foreground">Self check</h3>
+          <h3 className="flex items-center gap-1 text-sm font-semibold text-foreground">
+            Self check
+            <HelpTip title="Self check">
+              Octane scans the log for things worth a look: clutch slip, lean AFR under boost, fuel pressure drop, coolant pressure, wheel slip and more. Red = critical, yellow = warning, blue = info. <b>Jump</b> moves the cursor there, <b>Plot</b> opens the channels that explain it. <b>Tune checks</b> changes the limits. Findings are prompts to look, not a diagnosis.
+            </HelpTip>
+          </h3>
           <p className="truncate text-[11px] text-muted-foreground" title={fileName}>
             {fileName}
           </p>

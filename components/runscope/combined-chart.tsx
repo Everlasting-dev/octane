@@ -1,5 +1,6 @@
 "use client"
 
+import { HelpTip } from "./help-tip"
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type ReactNode, type SetStateAction } from "react"
 import { createPortal } from "react-dom"
 import {
@@ -905,7 +906,14 @@ function CombinedChartImpl({
     >
       {!workbench && <header className="flex flex-wrap items-center justify-between gap-2 px-2 py-2 sm:flex-nowrap sm:px-4 sm:py-3">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <h3 className="shrink-0 text-sm font-semibold text-foreground">{panelTitle}</h3>
+          <h3 className="flex shrink-0 items-center gap-1 text-sm font-semibold text-foreground">
+            {panelTitle}
+            {!workbench && (
+              <HelpTip title={panelTitle}>
+                Your chosen channels drawn together. In <b>Tidy lanes</b> (Settings, Display) related channels share a band so the lines do not overlap. Zoom: scroll, pinch or double-click on the plot; <b>Fit</b> shows the whole log. <b>Lines</b> changes a line's colour, scale and weight. <b>Reset</b> puts scaling back but keeps your channels. Pick channels from the list on the right or a <b>Template</b>.
+              </HelpTip>
+            )}
+          </h3>
           <span className="hidden truncate font-mono text-[11px] text-muted-foreground min-[520px]:block lg:hidden">
             {selected.size ? `${selected.size} selected` : focusKey ? `Focused: ${focusKey}` : cursorT != null ? `t = ${fmt(cursorT, 2)}${timeUnit}` : "Channels ready"}
           </span>

@@ -1,7 +1,9 @@
 "use client"
 
 import { useRef, useState, type ReactNode, type RefObject } from "react"
-import { Check, Crosshair, Download, HelpCircle, Lock, LockOpen, Maximize2, Pencil, RefreshCw, RotateCcw, Save, Search, Upload, X } from "lucide-react"
+import { HelpTip } from "./help-tip"
+import { useTemplatesHeight } from "./side-panel-size"
+import { Check, Crosshair, Download, Lock, LockOpen, Maximize2, Pencil, RefreshCw, RotateCcw, Save, Search, Upload, X } from "lucide-react"
 import { Toggle } from "./toggle"
 import { cn } from "@/lib/utils"
 import type { Template } from "@/lib/templates"
@@ -99,6 +101,7 @@ export function ControlPanel(props: ControlPanelProps) {
     setEditingId(id)
     setEditName(current)
   }
+  const tplSize = useTemplatesHeight()
   function commitRename() {
     if (editingId && editName.trim()) onRenameTemplate(editingId, editName.trim())
     setEditingId(null)
@@ -144,7 +147,12 @@ export function ControlPanel(props: ControlPanelProps) {
 
       {/* 2 · Controls (fixed) */}
       <div className="flex shrink-0 flex-col gap-2">
-        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Controls</span>
+        <span className="flex items-center gap-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Controls
+          <HelpTip title="Controls">
+            <b>Sync</b> moves the cursor on every graph together. <b>Window</b>: drag across any graph to pick a time range. <b>Annotate</b> pins a note to a moment. <b>Reset</b> shows the whole log and resets scaling but keeps your channels. <b>Fit</b> only zooms out to the whole log.
+          </HelpTip>
+        </span>
         <div className={cn("grid gap-2", mobile ? "grid-cols-3" : "grid-cols-2")}>
           <Toggle pressed={sync} onPressedChange={onSyncChange} label="Sync" />
           {onWindowModeChange && (
@@ -205,7 +213,12 @@ export function ControlPanel(props: ControlPanelProps) {
           }}
         />
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Templates</span>
+          <span className="flex items-center gap-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Templates
+            <HelpTip title="Templates">
+              A template is a saved set of channels (Fuel, Boost, GR6...). Click one to show just those channels. <b>Save</b> stores the channels shown now as a new template; the pencil renames, X deletes. Drag the bar under the list to make it taller (the Channels list gets shorter, down to a minimum for this screen); double-click the bar to reset. Templates are shared with the phone app.
+            </HelpTip>
+          </span>
           <div className="flex items-center gap-1 text-[11px]">
             <button
               type="button"
@@ -283,7 +296,7 @@ export function ControlPanel(props: ControlPanelProps) {
 
         {templates.length > 0
           ? (
-            <ul className="flex max-h-[4.75rem] flex-col gap-0.5 overflow-y-auto pr-1">
+            <ul ref={tplSize.listRef} style={{ height: tplSize.height }} className="flex flex-col gap-0.5 overflow-y-auto pr-1">
               {templates.map((t) =>
                 editingId === t.id ? (
                   <li key={t.id} className="flex items-center gap-1">
@@ -366,13 +379,34 @@ export function ControlPanel(props: ControlPanelProps) {
                 Save the current channel selection as a reusable template.
               </p>
             )}
+        {templates.length > 0 && (
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize the templates list"
+            title="Drag to resize the templates list; double-click to reset"
+            onPointerDown={tplSize.onPointerDown}
+            onPointerMove={tplSize.onPointerMove}
+            onPointerUp={tplSize.onPointerUp}
+            onPointerCancel={tplSize.onPointerUp}
+            onDoubleClick={tplSize.reset}
+            className="octane-templates-grip group -my-1 flex h-3 cursor-row-resize touch-none items-center justify-center"
+          >
+            <span className={cn("h-1 w-10 rounded-full bg-border transition-colors group-hover:bg-primary/70", tplSize.dragging && "bg-primary")} />
+          </div>
+        )}
       </div>
       )}
 
       {/* 4 · Window plot (fixed) */}
       {windowSlot && (
         <div className="flex shrink-0 flex-col gap-2">
-          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Window</span>
+          <span className="flex items-center gap-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Window
+            <HelpTip title="Window">
+              The whole log in miniature. The highlighted box is the time range on screen: drag it to move, drag its edges to resize, use - / + to zoom. In the Analysis Plot you can also scroll, pinch or double-click on the plot itself.
+            </HelpTip>
+          </span>
           {windowSlot}
         </div>
       )}
@@ -382,9 +416,9 @@ export function ControlPanel(props: ControlPanelProps) {
         <div className="flex shrink-0 items-center justify-between">
           <span className="flex items-center gap-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Channels <span className="text-muted-foreground/60">· {activeCount}/{channels.length}</span>
-            <span title="Click a channel name to jump to its plot" className="inline-flex">
-              <HelpCircle className="size-3 text-muted-foreground/60" aria-hidden />
-            </span>
+            <HelpTip title="Channels">
+              Every channel in the log. Tick or untick to show or hide its graph; click the name to jump to its graph. <b>All</b> / <b>None</b> select every channel or none. This list gets shorter when you make the Templates list taller, but never below a minimum for your screen.
+            </HelpTip>
           </span>
           <div className="flex items-center gap-1 text-[11px]">
             <button
@@ -406,7 +440,7 @@ export function ControlPanel(props: ControlPanelProps) {
           </div>
         </div>
 
-        <ul className={cn("-mr-2 flex min-h-0 flex-col gap-0.5 overflow-y-auto pr-2", mobile ? "max-h-[min(52dvh,22rem)]" : "flex-1")}>
+        <ul ref={tplSize.channelsRef} className={cn("-mr-2 flex min-h-0 flex-col gap-0.5 overflow-y-auto pr-2", mobile ? "max-h-[min(52dvh,22rem)]" : "flex-1")}>
           {filtered.map((c) => {
             const on = !hidden.has(c.key)
             return (

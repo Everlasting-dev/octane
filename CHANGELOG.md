@@ -10,6 +10,11 @@ accordingly. Version numbers therefore decrease part-way down this file.
 
 ## Unreleased
 
+### Added
+
+- The Templates list in the side panel can be made taller by dragging the bar under it (double-click resets). Window and Channels move down and the Channels list gets shorter instead of the panel scrolling; it stops at a minimum that depends on the screen height (18 % of it, 96-240 px).
+- "?" help on the side panel sections (Controls, Templates, Window, Channels), the Analysis Plot and Self check: click or tap for a short explanation of what it is and how to use it.
+
 ### Fixed
 
 - Scroll zoom in the Analysis Plot on laptops: a precision touchpad or smooth-scrolling mouse sends many small scroll steps between two redraws, and each one started from the last drawn window, so they overwrote each other and the zoom hardly moved. Steps now add up (40 small steps zoom as far as one big one).
